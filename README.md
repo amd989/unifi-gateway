@@ -40,6 +40,12 @@ pip install -r requirements.txt
 
 ### 2. Configure
 
+Copy the sample config and edit it:
+
+```bash
+cp conf/unifi-gateway.sample.conf conf/unifi-gateway.conf
+```
+
 Edit `conf/unifi-gateway.conf`:
 
 ```ini
@@ -92,17 +98,30 @@ ports = [ { "ifname": "eth0", "name": "WAN", "type": "wan", "realif": "eth0" }, 
 
 DHCP leases are auto-detected at `/tmp/dhcp.leases`.
 
-### OPNSense / pfSense (FreeBSD)
+### OPNSense (FreeBSD)
 
-The daemon auto-detects FreeBSD and uses `arp -an` for the neighbor table, `netstat -rn` for routing, and searches for ISC dhcpd lease files.
+The daemon auto-detects FreeBSD and uses `arp -an` for the neighbor table, `netstat -rn` for routing. It supports KEA DHCP (OPNSense's default DHCP server) with auto-detection of the lease file at `/var/db/kea/kea-leases4.csv`.
 
-Typical interface mapping for OPNSense:
+Typical interface mapping (check your interfaces with `ifconfig`):
 
 ```ini
-ports = [ { "ifname": "eth0", "name": "WAN", "type": "wan", "realif": "igb0" }, { "ifname": "eth1", "name": "LAN", "type": "lan", "realif": "igb1" } ]
+ports = [ { "ifname": "eth0", "name": "WAN", "type": "wan", "realif": "vmx0" }, { "ifname": "eth1", "name": "LAN", "type": "lan", "realif": "vmx1" } ]
+dhcp_lease_file = /var/db/kea/kea-leases4.csv
+dhcp_lease_format = kea
 ```
 
-If your DHCP lease file is in a non-standard location:
+Recommended setup using a Python virtual environment:
+
+```bash
+python3 -m venv /opt/unifi-gateway/venv
+/opt/unifi-gateway/venv/bin/pip install -r requirements.txt
+/opt/unifi-gateway/venv/bin/python unifi_gateway.py set-adopt -s http://your-controller:8080/inform
+/opt/unifi-gateway/venv/bin/python unifi_gateway.py run
+```
+
+### pfSense (FreeBSD)
+
+Same as OPNSense but uses ISC dhcpd instead of KEA:
 
 ```ini
 dhcp_lease_file = /var/dhcpd/var/db/dhcpd.leases
@@ -130,7 +149,14 @@ docker run -d --name unifi-gateway --network host \
 docker compose up -d
 ```
 
-Host networking (`network_mode: host`) is required so the daemon can read the host's real network interfaces and send UDP multicast for discovery.
+For automatic adoption on first start, set the `UNIFI_ADOPT_URL` environment variable in `docker-compose.yml`:
+
+```yaml
+environment:
+  - UNIFI_ADOPT_URL=http://your-controller:8080/inform
+```
+
+**Note:** `network_mode: host` is required so the daemon can read the host's real network interfaces. This only works on **Linux** — Docker Desktop on Windows/macOS does not support host networking.
 
 ## systemd Service
 
@@ -159,6 +185,8 @@ sudo journalctl -u unifi-gateway -f
 | `UNIFI_GW_CONFIG` | `conf/unifi-gateway.conf` | Path to config file |
 | `UNIFI_GW_LOG_LEVEL` | `DEBUG` | Log level (DEBUG, INFO, WARNING, ERROR) |
 | `UNIFI_GW_LOG_FILE` | *(stderr)* | Log to file instead of stderr |
+| `UNIFI_ADOPT_URL` | *(none)* | Controller inform URL for automatic adoption on start |
+| `UNIFI_ADOPT_KEY` | *(none)* | Auth key for auto-adoption (optional, rarely needed) |
 
 ### Config File (`conf/unifi-gateway.conf`)
 
@@ -182,7 +210,7 @@ sudo journalctl -u unifi-gateway -f
 | `use_aes_gcm` | `False` | Use AES-GCM encryption (set by controller) |
 | `hostname` | *(auto-detected)* | Override reported hostname |
 | `dhcp_lease_file` | *(auto-detected)* | Path to DHCP lease file |
-| `dhcp_lease_format` | `dnsmasq` | Lease format: `dnsmasq` or `isc` |
+| `dhcp_lease_format` | `dnsmasq` | Lease format: `dnsmasq`, `isc`, or `kea` |
 | `ping_target` | `ping.ubnt.com` | Host for latency measurement |
 | `speedtest_file` | `./speedtest.json` | Path to speedtest results JSON |
 | `platform` | `UNIFI-GW` | Platform string in discovery broadcasts |
