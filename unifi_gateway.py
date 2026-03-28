@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import configparser
 import argparse
+import json
 import logging
 import logging.handlers
 import os
@@ -45,6 +46,12 @@ def setup_logging():
 setup_logging()
 
 
+UNHANDLED_LOG = os.environ.get(
+    'UNIFI_GW_UNHANDLED_LOG',
+    os.path.join(os.path.dirname(CONFIG_FILE), 'unhandled_commands.json'),
+)
+
+
 class UnifiGateway(Daemon):
 
     def __init__(self, **kwargs):
@@ -57,9 +64,42 @@ class UnifiGateway(Daemon):
             self.config.add_section('provisioned')
 
         self.datacollector = datacollector.DataCollector(self.config)
+        self._unhandled = self._load_unhandled()
         Daemon.__init__(
             self, pidfile=self.config.get('global', 'pid_file'), **kwargs
         )
+
+    def _load_unhandled(self):
+        try:
+            with open(UNHANDLED_LOG, 'r') as f:
+                return json.load(f)
+        except (IOError, OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_unhandled(self):
+        try:
+            with open(UNHANDLED_LOG, 'w') as f:
+                json.dump(self._unhandled, f, indent=2, sort_keys=True)
+        except (IOError, OSError) as e:
+            logger.warning('Failed to write unhandled log: %s', e)
+
+    def _record_unhandled(self, category, key, response):
+        entry_key = '%s/%s' % (category, key)
+        is_new = entry_key not in self._unhandled
+        self._unhandled[entry_key] = {
+            'category': category,
+            'key': key,
+            'last_seen': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'count': self._unhandled.get(entry_key, {}).get('count', 0) + 1,
+            'payload': {k: v for k, v in response.items()
+                        if k not in ('server_time_in_utc',)},
+        }
+        self._save_unhandled()
+        if is_new:
+            logger.info(
+                'New unhandled %s recorded: %s (see %s)',
+                category, key, UNHANDLED_LOG,
+            )
 
     def _try_auto_adopt(self):
         """Auto-adopt using UNIFI_ADOPT_URL env var if not already adopted."""
@@ -140,11 +180,19 @@ class UnifiGateway(Daemon):
             self.interval = response.get('interval', self.interval)
 
         elif resp_type == 'setparam':
+            HANDLED_SETPARAM_KEYS = {
+                '_type', 'server_time_in_utc', 'blocked_sta', 'mgmt_cfg',
+            }
             for key, value in response.items():
                 if key == 'mgmt_cfg':
                     self._parse_mgmt_cfg(value)
                 if key not in ('_type', 'server_time_in_utc', 'blocked_sta'):
                     self.config.set('provisioned', key, str(value))
+                if key not in HANDLED_SETPARAM_KEYS:
+                    self._record_unhandled(
+                        'setparam', key,
+                        {'_type': 'setparam', 'key': key, 'value': value},
+                    )
             self._save_config()
 
         elif resp_type == 'reboot':
@@ -188,6 +236,7 @@ class UnifiGateway(Daemon):
 
         else:
             logger.warning('Unhandled response type: %s', resp_type)
+            self._record_unhandled('response', resp_type, response)
 
     def _handle_cmd(self, response):
         cmd = response.get('cmd', '')
@@ -203,6 +252,7 @@ class UnifiGateway(Daemon):
             logger.info('Locate mode disabled')
         else:
             logger.warning('Unknown command: %s', cmd)
+            self._record_unhandled('command', cmd, response)
 
     def _run_speedtest(self):
         logger.info('Running speed test...')
@@ -297,6 +347,11 @@ class UnifiGateway(Daemon):
             self._save_config()
 
     def _parse_mgmt_cfg(self, data):
+        HANDLED_MGMT_KEYS = {
+            'cfgversion', 'mgmt_url', 'authkey', 'use_aes_gcm',
+            'inform_url', 'stun_url', 'report_crash',
+            'capability', 'selfrun_guest_mode', 'led_enabled',
+        }
         for row in data.split('\n'):
             if '=' not in row:
                 continue
@@ -313,6 +368,11 @@ class UnifiGateway(Daemon):
                 if not self.config.getboolean('gateway', 'use_aes_gcm'):
                     self.config.set('gateway', 'use_aes_gcm', 'True')
                     logger.debug('Switching encryption to AES-GCM')
+            if key not in HANDLED_MGMT_KEYS:
+                self._record_unhandled(
+                    'mgmt_cfg', key,
+                    {'_type': 'mgmt_cfg', 'key': key, 'value': value},
+                )
 
     def _send_inform(self, data, encryption='CBC'):
         headers = {
