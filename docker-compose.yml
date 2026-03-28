@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  unifi-gateway:
+    build: .
+    container_name: unifi-gateway
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./conf:/app/conf
+      - ./speedtest.json:/app/speedtest.json:ro
+    environment:
+      - UNIFI_GW_LOG_LEVEL=INFO
+      - UNIFI_GW_CONFIG=/app/conf/unifi-gateway.conf
+      # - UNIFI_ADOPT_URL=http://your-controller:8080/inform

@@ -1,216 +1,577 @@
+# -*- coding: utf-8 -*-
+import logging
+import os
+import platform
+import csv
 import re
 import ast
 import time
 import json
-import os.path
 import subprocess
-import socket, struct, fcntl
-from random import randint
+import socket
 
-class DataCollector(object):
-  def __init__(self, config):
-    self.data = {}
-    self.updated = {}
-    self.config = config
-    self.ports = ast.literal_eval(config.get('gateway', 'ports'))
+import psutil
 
-    self.update_oneshot()
+logger = logging.getLogger('unifi-gateway')
 
-  def update_oneshot(self):
-    self.data['macs'] = self._update_interface_macs_linux()
-    self.update()
 
-  def update(self):
-    self.data['ifstat'] = self._update_ifstat_linux()
-    self.data['dhcp_leases'] = self._update_dnsmasq_leases()
-    self.data['ip'] = self._update_interface_addresses()
-    self.data['nameservers'] = [ '195.74.0.47', '195.197.54.100' ] # XXX TODO FIXME
-    self.data['speedtest'] = self._update_speedtest_cli_results()
-    self.updated['general'] = time.time()
+class DataCollector:
+    """Collects system and network stats for the UniFi inform payload.
 
-    if 'latency' not in self.updated or (time.time() - self.updated['latency'] >= 300):
-      self.data['latency'] = self._update_latency()
-      self.updated['latency'] = time.time()
+    Uses psutil for cross-platform interface stats, addresses, and system metrics.
+    Platform-specific code handles DHCP leases, neighbor tables, and routing.
+    """
 
-    if 'host_table' not in self.updated or (time.time() - self.updated['host_table'] >= 120):
-      self.data['host_table'] = self._update_iproute2_neighbors_linux()
-      self.updated['host_table'] = time.time()
+    def __init__(self, config):
+        self.data = {}
+        self.updated = {}
+        self.config = config
+        self.ports = ast.literal_eval(config.get('gateway', 'ports'))
+        self._platform = platform.system().lower()
+        self._prev_io = {}
+        self._prev_time = None
 
-  def _update_ifstat_linux(self):
-    ret = {}
-    f = open("/proc/net/dev", "r");
-    data = f.read()
-    f.close()
+        self.update_oneshot()
 
-    lines = re.split("[\r\n]+", data)
-    for line in lines[2:]:
-      if line.find(":") < 0: continue
-      iface, data = line.split(":")
-      ifname = [ d['ifname'] for d in self.ports if d['realif'].lower() == iface.lstrip() ]
-      if len(ifname) > 0:
-        ifname = ifname[0]
-      else:
-        continue
-      columns = data.split()
+    def update_oneshot(self):
+        self.data['macs'] = self._get_interface_macs()
+        self.update()
 
-      info                  = {}
-      info["rx_bytes"]      = columns[0]
-      info["rx_packets"]    = columns[1]
-      info["rx_errors"]     = columns[2]
-      info["rx_dropped"]    = columns[3]
-      info["rx_fifo"]       = columns[4]
-      info["rx_frame"]      = columns[5]
-      info["rx_compressed"] = columns[6]
-      info["rx_multicast"]  = columns[7]
-      if 'ifstat' in self.data:
-        info["rx_bps"]        = int((int(columns[0]) - int(self.data['ifstat'][ifname]["rx_bytes"])) / (time.time() - self.updated['general']))
-      else:
-        info["rx_bps"]      = 0
+    def update(self):
+        self.data['ifstat'] = self._get_ifstat()
+        self.data['dhcp_leases'] = self._get_dhcp_leases()
+        self.data['ip'] = self._get_interface_addresses()
+        self.data['nameservers'] = self._get_nameservers()
+        self.data['speedtest'] = self._get_speedtest_results()
+        self.data['system_stats'] = self._get_system_stats()
+        self.updated['general'] = time.time()
 
-      info["tx_bytes"]      = columns[8]
-      info["tx_packets"]    = columns[9]
-      info["tx_errors"]     = columns[10]
-      info["tx_dropped"]    = columns[11]
-      info["tx_fifo"]       = columns[12]
-      info["tx_frame"]      = columns[13]
-      info["tx_compressed"] = columns[14]
-      info["tx_multicast"]  = columns[15]
-      if 'ifstat' in self.data:
-        info["tx_bps"]        = int((int(columns[8]) - int(self.data['ifstat'][ifname]["tx_bytes"])) / (time.time() - self.updated['general']))
-      else:
-        info["tx_bps"]      = 0
+        if 'latency' not in self.updated or (time.time() - self.updated['latency'] >= 300):
+            self.data['latency'] = self._get_latency()
+            self.updated['latency'] = time.time()
 
-      ret[ifname] = info
-    return ret
+        if 'host_table' not in self.updated or (time.time() - self.updated['host_table'] >= 120):
+            self.data['host_table'] = self._get_neighbors()
+            self.updated['host_table'] = time.time()
 
-  def _update_dnsmasq_leases(self):
-    leasef = '/tmp/dhcp.leases'
-    leases = []
-    with open(leasef, 'r') as f:
-      for line in f:
-        (expiry, mac, ip, name, clientid) = line.split()
-        lease = {}
-        if name != '*':
-          lease['hostname'] = name
-        lease['ip'] = ip
-        lease['mac'] = mac
-        lease['expiry'] = expiry
-        leases.append(lease)
-    return leases
+    # ── Interface traffic stats ──────────────────────────────────────────
 
-  def _get_arp_table_linux(self):
-    arp_table = []
-    lan_ifs = [ d['ifname'] for d in self.ports if 'lan' in d['name'].lower() ]
-    with open('/proc/net/arp') as f:
-      header_line = f.readline()
-      for line in f:
-        (ipaddr, hwtype, flags, hwaddr, mask, iface) = line.split()
-        if not iface in lan_ifs:
-          continue
-        if flags == '0x0':
-          continue
-        arp = {}
-        arp['mac'] = hwaddr
-        arp['ip'] = ipaddr
-        _hostname = [ d['hostname'] for d in self.data['dhcp_leases'] if 'hostname' in d and d['mac'].lower() == hwaddr ]
-        if dhcp_hostname:
-          arp['hostname'] = dhcp_hostname[0]
-        arp_table.append(arp)
-    return arp_table
+    def _get_ifstat(self):
+        ret = {}
+        now = time.time()
+        try:
+            counters = psutil.net_io_counters(pernic=True)
+        except Exception as e:
+            logger.warning('Failed to get network counters: %s', e)
+            return ret
 
-  def _update_iproute2_neighbors_linux(self):
-    neigh_table = []
-    lan_ifs = [ d['realif'] for d in self.ports if 'lan' in d['name'].lower() ]
-    ip = subprocess.Popen(["ip", "-4", "-s", "neigh", "list"], stdout=subprocess.PIPE)
+        for port in self.ports:
+            realif = port['realif']
+            ifname = port['ifname']
+            if realif not in counters:
+                logger.debug('Interface %s not found in system counters', realif)
+                continue
 
-    for line in ip.stdout.readlines():
-      fields = line.decode('utf-8').split()
+            c = counters[realif]
+            info = {
+                'rx_bytes': str(c.bytes_recv),
+                'rx_packets': str(c.packets_recv),
+                'rx_errors': str(c.errin),
+                'rx_dropped': str(c.dropin),
+                'rx_fifo': '0',
+                'rx_frame': '0',
+                'rx_compressed': '0',
+                'rx_multicast': '0',
+                'tx_bytes': str(c.bytes_sent),
+                'tx_packets': str(c.packets_sent),
+                'tx_errors': str(c.errout),
+                'tx_dropped': str(c.dropout),
+                'tx_fifo': '0',
+                'tx_frame': '0',
+                'tx_compressed': '0',
+                'tx_multicast': '0',
+            }
 
-      if fields[-1] == "REACHABLE" or fields[-1] == "STALE":
-        dev_i = fields.index('dev') if 'dev' in fields else None
-        lladdr_i = fields.index('lladdr') if 'lladdr' in fields else None
-        stats_i = fields.index('used') if 'used' in fields else None
+            if ifname in self._prev_io and self._prev_time:
+                elapsed = now - self._prev_time
+                if elapsed > 0:
+                    prev = self._prev_io[ifname]
+                    info['rx_bps'] = int((c.bytes_recv - prev.bytes_recv) / elapsed)
+                    info['tx_bps'] = int((c.bytes_sent - prev.bytes_sent) / elapsed)
+                else:
+                    info['rx_bps'] = 0
+                    info['tx_bps'] = 0
+            else:
+                info['rx_bps'] = 0
+                info['tx_bps'] = 0
 
-        assert dev_i and lladdr_i and stats_i
+            self._prev_io[ifname] = c
+            ret[ifname] = info
 
-        if fields[dev_i + 1] in lan_ifs:
-          used,confirmed,updated = [ int(x) for x in fields[stats_i + 1].split('/') ]
+        if self._platform == 'linux':
+            self._supplement_multicast(ret)
 
-          # consider stale neighbor entry as active if it's been used within 5 minutes
-          if fields[-1] == "STALE" and used > 240:
-            continue
-          neigh = {}
-          neigh['mac'] = fields[lladdr_i + 1]
-          neigh['ip'] = fields[0]
-          dhcp_hostname = [ d['hostname'] for d in self.data['dhcp_leases'] if 'hostname' in d and d['mac'].lower() == fields[lladdr_i + 1] ]
-          if dhcp_hostname:
-            neigh['hostname'] = dhcp_hostname[0]
-          neigh_table.append(neigh)
-    return neigh_table
+        self._prev_time = now
+        return ret
 
-  def _get_default_route_linux(self):
-    with open("/proc/net/route") as f:
-      for line in f:
-        fields = line.strip().split()
-        if fields[1] != '00000000' or not int(fields[3], 16) & 2:
-          continue
+    def _supplement_multicast(self, ifstat):
+        """Read multicast counters from /proc/net/dev on Linux."""
+        try:
+            with open('/proc/net/dev', 'r') as f:
+                lines = f.readlines()
+            for line in lines[2:]:
+                if ':' not in line:
+                    continue
+                iface, data = line.split(':', 1)
+                iface = iface.strip()
+                matches = [d['ifname'] for d in self.ports if d['realif'] == iface]
+                if not matches or matches[0] not in ifstat:
+                    continue
+                cols = data.split()
+                if len(cols) >= 8:
+                    ifstat[matches[0]]['rx_multicast'] = cols[7]
+        except (IOError, OSError):
+            pass
 
-        return socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+    # ── MAC addresses ────────────────────────────────────────────────────
 
-  def _update_interface_addresses(self):
-    ret = {}
-    for d in self.ports:
-      ( ip, mask ) = self._get_interface_address(d['realif'])
-      if not ip or not mask:
-        continue
-      if d['type'].lower() == 'wan':
-        ret[d['ifname']] = { 'address': ip, 'netmask': mask, 'gateway': self._get_default_route_linux() }
-      else:
-        ret[d['ifname']] = { 'address': ip, 'netmask': mask }
+    def _get_interface_macs(self):
+        ret = {}
+        try:
+            addrs = psutil.net_if_addrs()
+        except Exception as e:
+            logger.warning('Failed to get interface addresses for MACs: %s', e)
+            addrs = {}
 
-    return ret
+        for port in self.ports:
+            realif = port['realif']
+            ifname = port['ifname']
+            mac = None
 
-  def _get_interface_address(self, iface):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    addr = None
-    mask = None
-    try:
-      addr = socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915, struct.pack('256s', bytes(iface[:15], 'utf-8')))[20:24])
-      mask = socket.inet_ntoa(fcntl.ioctl(s.fileno(), 35099, struct.pack('256s', bytes(iface, 'utf-8')))[20:24])
-    except:
-      pass
-    return [ addr, mask ]
+            if realif in addrs:
+                for addr in addrs[realif]:
+                    if addr.family == psutil.AF_LINK:
+                        mac = addr.address
+                        break
 
-  def _update_interface_macs_linux(self):
-    ret = {}
-    for d in self.ports:
-      ret[d['ifname']] = open('/sys/class/net/%s/address' % d['realif'],'r').read().strip()
-    return ret
+            if not mac and self._platform == 'linux':
+                try:
+                    with open('/sys/class/net/%s/address' % realif, 'r') as f:
+                        mac = f.read().strip()
+                except (IOError, OSError):
+                    pass
 
-  def _update_latency(self):
-    stdout = subprocess.Popen(["/bin/ping", "-c1", "-w5", "ping.ubnt.com"], stdout=subprocess.PIPE).stdout.read()
-    match = re.search('([\d]*\.[\d]*)/([\d]*\.[\d]*)/([\d]*\.[\d]*)', stdout.decode('utf-8'))
-    if not match:
-      return None
-    ping_min = match.group(1)
-    ping_avg = match.group(2)
-    ping_max = match.group(3)
+            if mac:
+                # Normalize MAC format to colon-separated lowercase
+                mac = mac.replace('-', ':').lower()
+                ret[ifname] = mac
+            else:
+                logger.warning('Could not determine MAC for %s (%s)', ifname, realif)
+                ret[ifname] = '00:00:00:00:00:00'
+        return ret
 
-    match = re.search('(\d*)% packet loss', stdout.decode('utf-8'))
-    if not match:
-      return None
-    pkt_loss = match.group(1)
-    return float(ping_avg)
+    # ── IP addresses and netmasks ────────────────────────────────────────
 
-  def _update_speedtest_cli_results(self):
-    results_file = "./speedtest.json"
-    noresult = { 'lastrun': 0, 'ping': 0, 'upload': 0, 'download': 0 }
+    def _get_interface_addresses(self):
+        ret = {}
+        try:
+            addrs = psutil.net_if_addrs()
+        except Exception as e:
+            logger.warning('Failed to get interface addresses: %s', e)
+            return ret
 
-    try:
-      ts = os.path.getmtime(results_file)
-      with open(results_file) as json_data:
-        sp = json.load(json_data)
-    except:
-      return noresult
+        for port in self.ports:
+            realif = port['realif']
+            ifname = port['ifname']
+            if realif not in addrs:
+                continue
 
-    return { 'lastrun': int(ts), 'ping': sp['ping'], 'upload': sp['upload']/1024/1024, 'download': sp['download']/1024/1024 }
+            ip_addr = None
+            netmask = None
+            for addr in addrs[realif]:
+                if addr.family == socket.AF_INET:
+                    ip_addr = addr.address
+                    netmask = addr.netmask
+                    break
+
+            if not ip_addr or not netmask:
+                continue
+
+            entry = {'address': ip_addr, 'netmask': netmask}
+            if port['type'].lower() == 'wan':
+                gw = self._get_default_gateway()
+                if gw:
+                    entry['gateway'] = gw
+            ret[ifname] = entry
+
+        return ret
+
+    # ── Default gateway ──────────────────────────────────────────────────
+
+    def _get_default_gateway(self):
+        if self._platform == 'linux':
+            return self._get_default_gateway_linux()
+        elif self._platform in ('freebsd', 'openbsd', 'netbsd', 'darwin'):
+            return self._get_default_gateway_bsd()
+        return self._get_default_gateway_fallback()
+
+    def _get_default_gateway_linux(self):
+        try:
+            with open('/proc/net/route') as f:
+                for line in f:
+                    fields = line.strip().split()
+                    if len(fields) < 4:
+                        continue
+                    if fields[1] != '00000000' or not int(fields[3], 16) & 2:
+                        continue
+                    import struct as _struct
+                    return socket.inet_ntoa(_struct.pack('<L', int(fields[2], 16)))
+        except (IOError, OSError, IndexError, ValueError) as e:
+            logger.debug('Failed to read default gateway from /proc/net/route: %s', e)
+        return None
+
+    def _get_default_gateway_bsd(self):
+        try:
+            output = subprocess.check_output(
+                ['netstat', '-rn', '-f', 'inet'], stderr=subprocess.DEVNULL, timeout=5
+            ).decode('utf-8')
+            for line in output.splitlines():
+                fields = line.split()
+                if len(fields) >= 2 and fields[0] == 'default':
+                    return fields[1]
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            logger.debug('Failed to get default gateway via netstat: %s', e)
+        return None
+
+    def _get_default_gateway_fallback(self):
+        for cmd in [['ip', 'route', 'show', 'default'], ['route', '-n', 'get', 'default']]:
+            try:
+                output = subprocess.check_output(
+                    cmd, stderr=subprocess.DEVNULL, timeout=5
+                ).decode('utf-8')
+                match = re.search(r'(?:via|gateway:?\s+)([\d.]+)', output)
+                if match:
+                    return match.group(1)
+            except (subprocess.SubprocessError, OSError, FileNotFoundError):
+                continue
+        return None
+
+    # ── DHCP leases ──────────────────────────────────────────────────────
+
+    def _get_dhcp_leases(self):
+        lease_file = None
+        lease_format = 'dnsmasq'
+
+        if self.config.has_option('gateway', 'dhcp_lease_file'):
+            lease_file = self.config.get('gateway', 'dhcp_lease_file')
+        if self.config.has_option('gateway', 'dhcp_lease_format'):
+            lease_format = self.config.get('gateway', 'dhcp_lease_format')
+
+        if not lease_file:
+            candidates = [
+                ('/tmp/dhcp.leases', 'dnsmasq'),
+                ('/var/lib/misc/dnsmasq.leases', 'dnsmasq'),
+                ('/var/db/kea/kea-leases4.csv', 'kea'),
+                ('/var/lib/kea/kea-leases4.csv', 'kea'),
+                ('/var/db/dhcpd.leases', 'isc'),
+                ('/var/dhcpd/var/db/dhcpd.leases', 'isc'),
+                ('/var/lib/dhcp/dhcpd.leases', 'isc'),
+            ]
+            for path, fmt in candidates:
+                if os.path.exists(path):
+                    lease_file = path
+                    lease_format = fmt
+                    break
+
+        if not lease_file or not os.path.exists(lease_file):
+            return []
+
+        try:
+            if lease_format == 'isc':
+                return self._parse_isc_leases(lease_file)
+            elif lease_format == 'kea':
+                return self._parse_kea_leases(lease_file)
+            return self._parse_dnsmasq_leases(lease_file)
+        except Exception as e:
+            logger.warning('Failed to read DHCP leases from %s: %s', lease_file, e)
+            return []
+
+    def _parse_dnsmasq_leases(self, path):
+        leases = []
+        with open(path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 4:
+                    continue
+                lease = {'expiry': parts[0], 'mac': parts[1], 'ip': parts[2]}
+                if parts[3] != '*':
+                    lease['hostname'] = parts[3]
+                leases.append(lease)
+        return leases
+
+    def _parse_isc_leases(self, path):
+        leases = []
+        current = None
+        with open(path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('lease '):
+                    current = {'ip': line.split()[1]}
+                elif current and line.startswith('hardware ethernet '):
+                    current['mac'] = line.split()[2].rstrip(';')
+                elif current and line.startswith('client-hostname '):
+                    hostname = line.split('"')[1] if '"' in line else line.split()[1].rstrip(';')
+                    current['hostname'] = hostname
+                elif current and line.startswith('ends '):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        current['expiry'] = parts[2].rstrip(';')
+                elif current and line == '}':
+                    if 'mac' in current:
+                        leases.append(current)
+                    current = None
+        return leases
+
+    def _parse_kea_leases(self, path):
+        """Parse KEA DHCP4 CSV lease file.
+
+        CSV columns: address,hwaddr,client_id,valid_lifetime,expire,subnet_id,
+                     fqdn_fwd,fqdn_rev,hostname,state[,user_context,pool_id]
+        State 0 = active, 1 = declined, 2 = expired-reclaimed.
+        """
+        leases = {}
+        with open(path, 'r', newline='') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row or row[0].startswith('#') or row[0] == 'address':
+                    continue
+                if len(row) < 10:
+                    continue
+                state = row[9].strip()
+                if state != '0':
+                    continue
+                ip = row[0].strip()
+                mac = row[1].strip()
+                expiry = row[4].strip()
+                hostname = row[8].strip()
+                lease = {'ip': ip, 'mac': mac, 'expiry': expiry}
+                if hostname:
+                    lease['hostname'] = hostname
+                leases[ip] = lease
+        return list(leases.values())
+
+    # ── Neighbor / ARP table ─────────────────────────────────────────────
+
+    def _get_neighbors(self):
+        if self._platform == 'linux':
+            arp_hosts = self._get_neighbors_linux()
+        else:
+            arp_hosts = self._get_neighbors_bsd()
+        return self._merge_dhcp_into_hosts(arp_hosts)
+
+    def _merge_dhcp_into_hosts(self, arp_hosts):
+        """Merge DHCP leases into host table so all clients appear,
+        and enrich entries with fields the controller needs for topology."""
+        boot = psutil.boot_time()
+        now = time.time()
+        hosts_by_mac = {}
+
+        for entry in arp_hosts:
+            enriched = {
+                'mac': entry['mac'],
+                'ip': entry['ip'],
+                'authorized': True,
+                'age': 0,
+                'uptime': int(now - boot),
+                'rx_bytes': 0,
+                'tx_bytes': 0,
+                'rx_packets': 0,
+                'tx_packets': 0,
+                'bc_bytes': 0,
+                'mc_bytes': 0,
+            }
+            if 'hostname' in entry:
+                enriched['hostname'] = entry['hostname']
+            hosts_by_mac[entry['mac'].lower()] = enriched
+
+        for lease in self.data.get('dhcp_leases', []):
+            mac = lease['mac'].lower()
+            if mac not in hosts_by_mac:
+                enriched = {
+                    'mac': lease['mac'],
+                    'ip': lease['ip'],
+                    'authorized': True,
+                    'age': 0,
+                    'uptime': 0,
+                    'rx_bytes': 0,
+                    'tx_bytes': 0,
+                    'rx_packets': 0,
+                    'tx_packets': 0,
+                    'bc_bytes': 0,
+                    'mc_bytes': 0,
+                }
+                if 'hostname' in lease:
+                    enriched['hostname'] = lease['hostname']
+                hosts_by_mac[mac] = enriched
+            elif 'hostname' not in hosts_by_mac[mac] and 'hostname' in lease:
+                hosts_by_mac[mac]['hostname'] = lease['hostname']
+
+        return list(hosts_by_mac.values())
+
+    def _get_neighbors_linux(self):
+        neigh_table = []
+        lan_ifs = [d['realif'] for d in self.ports if 'lan' in d['name'].lower()]
+        try:
+            result = subprocess.run(
+                ['ip', '-4', '-s', 'neigh', 'list'],
+                capture_output=True, timeout=10
+            )
+            output = result.stdout.decode('utf-8')
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.warning('Failed to get neighbor table: %s', e)
+            return neigh_table
+
+        for line in output.splitlines():
+            fields = line.split()
+            if not fields:
+                continue
+            state = fields[-1]
+            if state not in ('REACHABLE', 'STALE'):
+                continue
+
+            try:
+                dev_i = fields.index('dev')
+                lladdr_i = fields.index('lladdr')
+                stats_i = fields.index('used')
+            except ValueError:
+                continue
+
+            dev = fields[dev_i + 1]
+            if dev not in lan_ifs:
+                continue
+
+            mac = fields[lladdr_i + 1]
+            try:
+                used = int(fields[stats_i + 1].split('/')[0])
+            except (ValueError, IndexError):
+                used = 0
+
+            if state == 'STALE' and used > 240:
+                continue
+
+            neigh = {'mac': mac, 'ip': fields[0]}
+            dhcp_hostname = [
+                d['hostname'] for d in self.data.get('dhcp_leases', [])
+                if 'hostname' in d and d['mac'].lower() == mac.lower()
+            ]
+            if dhcp_hostname:
+                neigh['hostname'] = dhcp_hostname[0]
+            neigh_table.append(neigh)
+
+        return neigh_table
+
+    def _get_neighbors_bsd(self):
+        neigh_table = []
+        lan_ifs = [d['realif'] for d in self.ports if 'lan' in d['name'].lower()]
+        try:
+            result = subprocess.run(
+                ['arp', '-an'], capture_output=True, timeout=10
+            )
+            output = result.stdout.decode('utf-8')
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            logger.warning('Failed to get ARP table: %s', e)
+            return neigh_table
+
+        for line in output.splitlines():
+            match = re.match(
+                r'\?\s+\(([\d.]+)\)\s+at\s+([\da-f:]+)\s+on\s+(\S+)', line, re.I
+            )
+            if not match:
+                continue
+            ip_addr, mac, iface = match.groups()
+            if mac == '(incomplete)' or iface not in lan_ifs:
+                continue
+
+            neigh = {'mac': mac, 'ip': ip_addr}
+            dhcp_hostname = [
+                d['hostname'] for d in self.data.get('dhcp_leases', [])
+                if 'hostname' in d and d['mac'].lower() == mac.lower()
+            ]
+            if dhcp_hostname:
+                neigh['hostname'] = dhcp_hostname[0]
+            neigh_table.append(neigh)
+
+        return neigh_table
+
+    # ── DNS nameservers ──────────────────────────────────────────────────
+
+    def _get_nameservers(self):
+        nameservers = []
+        for path in ('/etc/resolv.conf', '/tmp/resolv.conf.auto'):
+            try:
+                with open(path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('nameserver '):
+                            ns = line.split()[1]
+                            if ns not in nameservers:
+                                nameservers.append(ns)
+            except (IOError, OSError):
+                continue
+        if not nameservers:
+            logger.warning('No nameservers found in resolv.conf, using fallback')
+            nameservers = ['8.8.8.8', '8.8.4.4']
+        return nameservers
+
+    # ── Latency ──────────────────────────────────────────────────────────
+
+    def _get_latency(self):
+        target = 'ping.ubnt.com'
+        if self.config.has_option('gateway', 'ping_target'):
+            target = self.config.get('gateway', 'ping_target')
+
+        try:
+            result = subprocess.run(
+                ['ping', '-c', '1', '-W', '5', target],
+                capture_output=True, timeout=10
+            )
+            output = result.stdout.decode('utf-8')
+            match = re.search(r'([\d.]+)/([\d.]+)/([\d.]+)', output)
+            if match:
+                return float(match.group(2))
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            logger.debug('Ping failed: %s', e)
+        return 0
+
+    # ── Speedtest ────────────────────────────────────────────────────────
+
+    def _get_speedtest_results(self):
+        noresult = {'lastrun': 0, 'ping': 0, 'upload': 0, 'download': 0}
+        results_file = './speedtest.json'
+        if self.config.has_option('gateway', 'speedtest_file'):
+            results_file = self.config.get('gateway', 'speedtest_file')
+
+        try:
+            ts = os.path.getmtime(results_file)
+            with open(results_file) as f:
+                sp = json.load(f)
+            return {
+                'lastrun': int(ts),
+                'ping': sp.get('ping', 0),
+                'upload': sp.get('upload', 0) / 1024 / 1024,
+                'download': sp.get('download', 0) / 1024 / 1024,
+            }
+        except (IOError, OSError, json.JSONDecodeError, KeyError, TypeError):
+            return noresult
+
+    # ── System stats ─────────────────────────────────────────────────────
+
+    def _get_system_stats(self):
+        try:
+            return {
+                'cpu': str(int(psutil.cpu_percent(interval=None))),
+                'mem': str(int(psutil.virtual_memory().percent)),
+            }
+        except Exception as e:
+            logger.warning('Failed to get system stats: %s', e)
+            return {'cpu': '0', 'mem': '0'}

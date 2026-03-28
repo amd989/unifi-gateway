@@ -2,3 +2,8 @@
 *.iml
 *.pyc
 venv
+__pycache__
+conf/unifi-gateway.conf
+conf/unhandled_commands.json
+speedtest.json
+*.pid
