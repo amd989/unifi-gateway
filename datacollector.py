@@ -364,8 +364,59 @@ class DataCollector:
 
     def _get_neighbors(self):
         if self._platform == 'linux':
-            return self._get_neighbors_linux()
-        return self._get_neighbors_bsd()
+            arp_hosts = self._get_neighbors_linux()
+        else:
+            arp_hosts = self._get_neighbors_bsd()
+        return self._merge_dhcp_into_hosts(arp_hosts)
+
+    def _merge_dhcp_into_hosts(self, arp_hosts):
+        """Merge DHCP leases into host table so all clients appear,
+        and enrich entries with fields the controller needs for topology."""
+        boot = psutil.boot_time()
+        now = time.time()
+        hosts_by_mac = {}
+
+        for entry in arp_hosts:
+            enriched = {
+                'mac': entry['mac'],
+                'ip': entry['ip'],
+                'authorized': True,
+                'age': 0,
+                'uptime': int(now - boot),
+                'rx_bytes': 0,
+                'tx_bytes': 0,
+                'rx_packets': 0,
+                'tx_packets': 0,
+                'bc_bytes': 0,
+                'mc_bytes': 0,
+            }
+            if 'hostname' in entry:
+                enriched['hostname'] = entry['hostname']
+            hosts_by_mac[entry['mac'].lower()] = enriched
+
+        for lease in self.data.get('dhcp_leases', []):
+            mac = lease['mac'].lower()
+            if mac not in hosts_by_mac:
+                enriched = {
+                    'mac': lease['mac'],
+                    'ip': lease['ip'],
+                    'authorized': True,
+                    'age': 0,
+                    'uptime': 0,
+                    'rx_bytes': 0,
+                    'tx_bytes': 0,
+                    'rx_packets': 0,
+                    'tx_packets': 0,
+                    'bc_bytes': 0,
+                    'mc_bytes': 0,
+                }
+                if 'hostname' in lease:
+                    enriched['hostname'] = lease['hostname']
+                hosts_by_mac[mac] = enriched
+            elif 'hostname' not in hosts_by_mac[mac] and 'hostname' in lease:
+                hosts_by_mac[mac]['hostname'] = lease['hostname']
+
+        return list(hosts_by_mac.values())
 
     def _get_neighbors_linux(self):
         neigh_table = []
