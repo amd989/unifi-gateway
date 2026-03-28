@@ -1,0 +1,16 @@
+[Unit]
+Description=UniFi Gateway Emulator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/unifi-gateway/unifi_gateway.py run
+WorkingDirectory=/opt/unifi-gateway
+Restart=on-failure
+RestartSec=10
+Environment=UNIFI_GW_LOG_LEVEL=INFO
+Environment=UNIFI_GW_CONFIG=/opt/unifi-gateway/conf/unifi-gateway.conf
+
+[Install]
+WantedBy=multi-user.target

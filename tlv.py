@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-class TLV(object):
+
+
+class TLV:
 
     def __init__(self):
         self.results = bytearray()
@@ -16,7 +18,7 @@ class TLV(object):
 class UnifiTLV(TLV):
 
     def get(self, version, command):
-        value = bytearray([version, command, 0, len(self.results)])
+        length = len(self.results)
+        value = bytearray([version, command, (length >> 8) & 0xFF, length & 0xFF])
         value.extend(self.results)
-
         return value
