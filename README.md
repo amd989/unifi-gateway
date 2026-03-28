@@ -2,7 +2,9 @@
 
 A Python 3 daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi Controller. This allows non-Ubiquiti routers (OpenWRT, OPNSense, pfSense, or any Linux/FreeBSD router) to appear in the UniFi Controller UI and report network statistics.
 
-Forked from [stephanlascar/unifi-gateway](https://github.com/stephanlascar/unifi-gateway).
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## How It Works
 
@@ -210,7 +212,14 @@ Results are saved to `speedtest.json` and reported in the next inform cycle.
 | `tlv.py` | TLV encoding for UDP discovery packets |
 | `daemon.py` | Unix daemon (double-fork, PID file) |
 
-## Protocol Documentation
+## Acknowledgments
+
+This project builds upon and was inspired by:
+
+- [stephanlascar/unifi-gateway](https://github.com/stephanlascar/unifi-gateway) — original UniFi Gateway emulator
+- [qvr/unifi-gateway](https://github.com/qvr/unifi-gateway) — Python 3 port, FreeBSD support, AES-GCM encryption
+
+Protocol documentation:
 
 - [jk-5/unifi-inform-protocol](https://github.com/jk-5/unifi-inform-protocol)
 - [fxkr/unifi-protocol-reverse-engineering](https://github.com/fxkr/unifi-protocol-reverse-engineering)
