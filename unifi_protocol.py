@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 import time
 import json
-import sys
 import ast
 from Crypto import Random
 
+import logging
 import zlib
 try:
     import snappy
+    HAS_SNAPPY = True
 except ImportError:
-    pass
+    HAS_SNAPPY = False
+
+logger = logging.getLogger('unifi-gateway')
 
 from Crypto.Cipher import AES
 from struct import pack, unpack
@@ -42,7 +45,7 @@ def encode_inform(config, data, encryption='CBC'):
     if encryption == 'GCM':
         flags |= 0x08
 
-    if 'snappy' in sys.modules:
+    if HAS_SNAPPY:
         payload = snappy.compress(data.encode('utf-8'))
         flags |= 0x04
     else:
@@ -108,8 +111,13 @@ def decode_inform(config, encoded_data):
                 raise Exception('Response not padded or padding is corrupt')
             payload = payload[:(len(payload) - pad_size)]
 
-    if flag['SnappyCompression'] and 'snappy' in sys.modules:
-        payload = snappy.decompress(payload)
+    if flag['SnappyCompression']:
+        if HAS_SNAPPY:
+            payload = snappy.decompress(payload)
+        else:
+            raise Exception(
+                'Response is snappy-compressed but python-snappy is not installed'
+            )
     elif flag['zlibCompressed']:
         payload = zlib.decompress(payload)
 
