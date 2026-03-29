@@ -1,0 +1,2 @@
+dist/unifi-gateway usr/bin
+conf/unifi-gateway.sample.conf etc/unifi-gateway
