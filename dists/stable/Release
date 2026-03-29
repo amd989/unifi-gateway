@@ -1,37 +1,37 @@
 Origin: unifi-gateway
 Label: unifi-gateway
 Codename: stable
-Date: Sun, 29 Mar 2026 20:34:40 UTC
+Date: Sun, 29 Mar 2026 20:51:53 UTC
 Architectures: amd64 arm64 armhf
 Components: main
 Description: UniFi Gateway Emulator packages
 MD5Sum:
- f9caad931e11028263a7542535eae424 698 main/binary-amd64/Packages
- 489fc94d98f3828f272f4a9e58858939 473 main/binary-amd64/Packages.gz
+ 1cdba08358e37f3993352e21cf509486 698 main/binary-amd64/Packages
+ 59b2ef24d8cf5e2a9c8089a2a01082a1 474 main/binary-amd64/Packages.gz
  01fb541f115d622de3efc12fc35a0bf2 124 main/binary-amd64/Release
- 27f8fdc785a75d3107b8157087b1641b 698 main/binary-arm64/Packages
- a697f7f0bf6fc640833f37ad52c2f2b0 477 main/binary-arm64/Packages.gz
+ d19a9ee3c5c1fa20e9277906bd5c25f5 698 main/binary-arm64/Packages
+ 38b66276fa501a20ebec96c53d3f5ddf 477 main/binary-arm64/Packages.gz
  e805065a748e2430d5a51e0c48ee3910 124 main/binary-arm64/Release
- 580dbfbe6c5da795769228de15b04f1d 696 main/binary-armhf/Packages
- 52358c0bbddffc51344d1fe32589e93e 475 main/binary-armhf/Packages.gz
+ c16c28d8228e1c70523a28fcabe03d3d 696 main/binary-armhf/Packages
+ bf7ce0d0a4b30459e2d76ca4b5f8b6d1 475 main/binary-armhf/Packages.gz
  7a7657931dfa922f7c1d2df6a10f320e 124 main/binary-armhf/Release
 SHA1:
- 64379c173c94f4a3640760d05fadc197f1438198 698 main/binary-amd64/Packages
- 7aa0661a74857488ff32ddf0f5444c00afa9b1c5 473 main/binary-amd64/Packages.gz
+ c84f5f5d55921bad2153baf5a3d68e1076f459a1 698 main/binary-amd64/Packages
+ 416c07254e4eda40120eec2658fa867834298f2a 474 main/binary-amd64/Packages.gz
  3f99bcc04deac3af09e411adf16b0bcb3e96f7ec 124 main/binary-amd64/Release
- 82c16597b54e0991a6b26744981e84c400019649 698 main/binary-arm64/Packages
- d239bc1084d72067d052ffa910dffed926cc37f5 477 main/binary-arm64/Packages.gz
+ 3b592cfc6637cf3ae4e1edcf696700700a1495bb 698 main/binary-arm64/Packages
+ 3585a7a0f700c6e6b9e5aa3a3b4c757207a0c5b2 477 main/binary-arm64/Packages.gz
  462a4946313ebfa30cf75a0235c315c668bd7d2e 124 main/binary-arm64/Release
- b87a818be163cdf9ad5c2135839102e16347c4e6 696 main/binary-armhf/Packages
- c3a9bf35b5662b1ab9dccabd30820e21a9bf3c81 475 main/binary-armhf/Packages.gz
+ d4da4772ea3adfed08462dcee5d40cdda5c35082 696 main/binary-armhf/Packages
+ fd747fcd230c729fb5c780f8bdb6aba79b539e37 475 main/binary-armhf/Packages.gz
  c25ec5f2bec221b115d3ed867a09a9fde763cb7a 124 main/binary-armhf/Release
 SHA256:
- 7d45ad4d55133e82aedcede6b0ecc387c31c1a0732e729caf7f6f90ac7c2397a 698 main/binary-amd64/Packages
- e41b39eee382e242804bf9df09d317439f1c6ef17d81ccb451cc895faeff2f7c 473 main/binary-amd64/Packages.gz
+ 728fc8c83480e8332427bfd7fb323879d9d882544b374551224d412e4b90a52c 698 main/binary-amd64/Packages
+ 3512277d790355aa4a530e6fb1e9852668540a8ac181f0ee5681c20145d76b60 474 main/binary-amd64/Packages.gz
  d840be773c2bc48f21f841cc4ef5023101e7ebcee1a0a675a5458743657ac4f6 124 main/binary-amd64/Release
- eb18abba902a3f661b9db51f32c4a899d414da29af10a660e1d4d68603e238cb 698 main/binary-arm64/Packages
- 10886e2f23be3368e59014ae3c3e6e5a4c9300d6b7dfd6eeea2283feb04a0549 477 main/binary-arm64/Packages.gz
+ dac4d4f6f96dcbabaa420e19a2759053d69899f0f952762904d0aefa9474852b 698 main/binary-arm64/Packages
+ f96304bede972074f5b1ffa540dba825a68c6974a99876395f34442bd555c990 477 main/binary-arm64/Packages.gz
  2a622b8e2e1c1c6eb1b884efcd748d97e68f2fd831eb086d454cc7650b3e5742 124 main/binary-arm64/Release
- e64c1ab2c692d7d6721955bd1f307133bed0f088916af91068bb077802da2b35 696 main/binary-armhf/Packages
- c57f821ee8693ab6bbcbf39363dac65c18cecb60db86c36fd09479519d426897 475 main/binary-armhf/Packages.gz
+ a918b47255ad33d9897ca3f48d5afa3c4d0ff8c186265463fcea2f7d12658725 696 main/binary-armhf/Packages
+ cbbcbe0fe6a3168e0809e4592fa5c23cced2db5bf385bbd681b8bdee2a2ae226 475 main/binary-armhf/Packages.gz
  18e8003682d180f93743ec25bb45d6320600fcad96c1bb18353f37483bc69120 124 main/binary-armhf/Release
