@@ -1,0 +1,5 @@
+Component: main
+Origin: unifi-gateway
+Label: unifi-gateway
+Architecture: arm64
+Description: UniFi Gateway Emulator packages
