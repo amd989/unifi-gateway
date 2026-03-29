@@ -220,10 +220,18 @@ jobs:
     needs: [build-linux, build-freebsd]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4
         with:
           path: packages
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          pattern: '{deb,rpm,pkg,ipk}-*'
           merge-multiple: true
 
       - name: Create GitHub Release
