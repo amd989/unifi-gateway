@@ -1,0 +1,15 @@
+Source: unifi-gateway
+Section: net
+Priority: optional
+Maintainer: amd989 <amd989@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/amd989/unifi-gateway
+
+Package: unifi-gateway
+Architecture: any
+Depends: ${misc:Depends}
+Description: UniFi Gateway Emulator
+ A daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi
+ Controller, allowing non-Ubiquiti routers (OpenWRT, OPNSense, pfSense)
+ to report network stats to the UniFi Controller UI.

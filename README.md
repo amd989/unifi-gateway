@@ -1,10 +1,6 @@
-# UniFi Gateway Emulator
+# UniFi Gateway Emulator  [![Build & Release](https://github.com/amd989/unifi-gateway/actions/workflows/release.yml/badge.svg)](https://github.com/amd989/unifi-gateway/actions/workflows/release.yml)
 
 A Python 3 daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi Controller. This allows non-Ubiquiti routers (OpenWRT, OPNSense, pfSense, or any Linux/FreeBSD router) to appear in the UniFi Controller UI and report network statistics.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
 
 ## How It Works
 
@@ -31,22 +27,31 @@ Your UniFi APs, switches, and other devices continue connecting to the controlle
 
 ## Installation
 
-### Pre-built Binaries (Recommended)
-
-Download the latest standalone binary from [Releases](https://github.com/amd989/unifi-gateway/releases). No Python installation required.
-
-| Platform | Binary |
-|---|---|
-| Linux x86_64 | `unifi-gateway-linux-amd64` |
-| Linux ARM64 (OpenWRT) | `unifi-gateway-linux-arm64` |
-| Linux ARMv7 (OpenWRT) | `unifi-gateway-linux-armhf` |
-| FreeBSD x86_64 (OPNSense/pfSense) | `unifi-gateway-freebsd-amd64` (built on FreeBSD 14.3 — compatible with OPNSense 25.7+ and pfSense CE 2.7+) |
+### Debian / Ubuntu (apt)
 
 ```bash
-# Download, make executable, and run
-chmod +x unifi-gateway-linux-amd64
-./unifi-gateway-linux-amd64 set-adopt -s http://your-controller:8080/inform
-./unifi-gateway-linux-amd64 run
+curl -fsSL https://amd989.github.io/unifi-gateway/setup-apt.sh | sudo bash
+sudo apt install unifi-gateway
+```
+
+### RHEL / Rocky / Fedora (dnf)
+
+```bash
+curl -fsSL https://amd989.github.io/unifi-gateway/setup-rpm.sh | sudo bash
+sudo dnf install unifi-gateway
+```
+
+### OpenWRT (opkg)
+
+```bash
+curl -fsSL https://amd989.github.io/unifi-gateway/setup-opkg.sh | sh
+opkg install unifi-gateway
+```
+
+### FreeBSD / OPNSense / pfSense (pkg)
+
+```bash
+pkg add https://github.com/amd989/unifi-gateway/releases/latest/download/unifi-gateway-VERSION.pkg
 ```
 
 ### Docker
@@ -57,6 +62,17 @@ docker compose up -d
 ```
 
 See the [Docker section](#docker) below for details.
+
+### Standalone Binaries
+
+Pre-built binaries are also available from [Releases](https://github.com/amd989/unifi-gateway/releases) if you prefer manual installation.
+
+| Platform | Binary |
+|---|---|
+| Linux x86_64 | `unifi-gateway-linux-amd64` |
+| Linux ARM64 | `unifi-gateway-linux-arm64` |
+| Linux ARMv7 | `unifi-gateway-linux-armhf` |
+| FreeBSD x86_64 | `unifi-gateway-freebsd-amd64` |
 
 ### From Source
 
@@ -192,23 +208,17 @@ environment:
 
 **Note:** `network_mode: host` is required so the daemon can read the host's real network interfaces. This only works on **Linux** — Docker Desktop on Windows/macOS does not support host networking.
 
-## systemd Service
+## Service Management
 
-Copy the service file and the project:
+Packages automatically install and enable the service. After configuring, just start it:
 
-```bash
-sudo cp -r . /opt/unifi-gateway
-sudo cp unifi-gateway.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now unifi-gateway
-```
+| Platform | Start | Logs |
+|---|---|---|
+| systemd (Debian/Ubuntu/RHEL) | `sudo systemctl start unifi-gateway` | `journalctl -u unifi-gateway -f` |
+| rc.d (FreeBSD/OPNSense) | `sudo service unifi_gateway start` | `tail -f /var/log/unifi-gateway.log` |
+| procd (OpenWRT) | `/etc/init.d/unifi-gateway start` | `logread -e unifi-gateway` |
 
-Check status:
-
-```bash
-sudo systemctl status unifi-gateway
-sudo journalctl -u unifi-gateway -f
-```
+Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg upgrade`, or `pkg upgrade`.
 
 ## Configuration Reference
 
@@ -273,6 +283,10 @@ Results are saved to `speedtest.json` and reported in the next inform cycle.
 | `tools.py` | Helper functions for building `if_table` and `network_table` structures |
 | `tlv.py` | TLV encoding for UDP discovery packets |
 | `daemon.py` | Unix daemon (double-fork, PID file) |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 

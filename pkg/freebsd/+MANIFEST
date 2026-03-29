@@ -1,0 +1,15 @@
+name: unifi-gateway
+version: "${VERSION}"
+origin: net/unifi-gateway
+comment: UniFi Gateway Emulator
+maintainer: amd989@users.noreply.github.com
+www: https://github.com/amd989/unifi-gateway
+prefix: /usr/local
+desc: <<EOD
+A daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi
+Controller, allowing non-Ubiquiti routers (OpenWRT, OPNSense, pfSense)
+to report network stats to the UniFi Controller UI.
+EOD
+categories: [net]
+licenselogic: single
+licenses: [MIT]

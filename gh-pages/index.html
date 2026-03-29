@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>unifi-gateway - Package Repository</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2029;
+      --border: #2d3640;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --code-bg: #161b22;
+      --green: #3fb950;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 3rem; }
+    header h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    header p { color: var(--muted); font-size: 1.1rem; }
+    header .links { margin-top: 1rem; }
+    header .links a {
+      color: var(--accent);
+      text-decoration: none;
+      margin: 0 0.75rem;
+    }
+    header .links a:hover { color: var(--accent-hover); text-decoration: underline; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1.15rem;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card .distros {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.9rem;
+      line-height: 1.7;
+      position: relative;
+    }
+    code { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
+    .prompt { color: var(--muted); user-select: none; }
+    .cmd { color: var(--green); }
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>unifi-gateway</h1>
+      <p>UniFi Gateway Emulator &mdash; Package Repository</p>
+      <p style="margin-top: 0.75rem;"><span style="background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.75rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; color: var(--green);">v{{VERSION}}</span></p>
+      <div class="links">
+        <a href="https://github.com/amd989/unifi-gateway">GitHub</a>
+        <a href="https://github.com/amd989/unifi-gateway/releases">Releases</a>
+        <a href="https://github.com/amd989/unifi-gateway#readme">Documentation</a>
+      </div>
+    </header>
+
+    <div class="card">
+      <h2>apt</h2>
+      <div class="distros">Debian, Ubuntu, Mint</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-apt.sh | sudo bash</span>
+<span class="prompt">$ </span><span class="cmd">sudo apt install unifi-gateway</span></code></pre>
+    </div>
+
+    <div class="card">
+      <h2>dnf / yum</h2>
+      <div class="distros">RHEL, Rocky Linux, Fedora</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-rpm.sh | sudo bash</span>
+<span class="prompt">$ </span><span class="cmd">sudo dnf install unifi-gateway</span></code></pre>
+    </div>
+
+    <div class="card">
+      <h2>opkg</h2>
+      <div class="distros">OpenWRT</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-opkg.sh | sh</span>
+<span class="prompt">$ </span><span class="cmd">opkg install unifi-gateway</span></code></pre>
+    </div>
+
+    <div class="card">
+      <h2>pkg</h2>
+      <div class="distros">FreeBSD, OPNSense, pfSense</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">pkg add https://github.com/amd989/unifi-gateway/releases/download/v{{VERSION}}/unifi-gateway-{{VERSION}}.pkg</span></code></pre>
+    </div>
+
+    <div class="card">
+      <h2>Docker</h2>
+      <div class="distros">Any platform with Docker</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">docker pull ghcr.io/amd989/unifi-gateway:latest</span>
+<span class="prompt">$ </span><span class="cmd">docker compose up -d</span></code></pre>
+    </div>
+
+    <footer>
+      <p>Packages are built and signed automatically on each <a href="https://github.com/amd989/unifi-gateway/releases">release</a>.</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	@echo "Binary is pre-built by PyInstaller — skipping build"
+
+override_dh_auto_install:
+	dh_auto_install
+	install -Dm644 conf/unifi-gateway.sample.conf debian/unifi-gateway/etc/unifi-gateway/unifi-gateway.conf
+
+override_dh_auto_clean:
+	@echo "Nothing to clean"
+
+override_dh_auto_test:
+	@echo "Skipping tests"
+
+override_dh_shlibdeps:
+	@echo "Skipping shlibdeps for PyInstaller binary"
+
+override_dh_strip:
+	@echo "Skipping strip for PyInstaller binary"
