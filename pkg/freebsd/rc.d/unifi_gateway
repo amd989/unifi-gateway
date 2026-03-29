@@ -1,0 +1,53 @@
+#!/bin/sh
+
+# PROVIDE: unifi_gateway
+# REQUIRE: NETWORKING DAEMON
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="unifi_gateway"
+rcvar="${name}_enable"
+
+: ${unifi_gateway_enable:="NO"}
+: ${unifi_gateway_config:="/usr/local/etc/unifi-gateway/unifi-gateway.conf"}
+: ${unifi_gateway_log:="/var/log/unifi-gateway.log"}
+
+pidfile="/var/run/${name}.pid"
+
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+status_cmd="${name}_status"
+
+unifi_gateway_start()
+{
+    echo "Starting ${name}."
+    install -m 644 /dev/null "${pidfile}"
+    install -m 644 /dev/null "${unifi_gateway_log}"
+    UNIFI_GW_CONFIG="${unifi_gateway_config}" \
+    UNIFI_GW_LOG_LEVEL=INFO \
+    /usr/sbin/daemon -f -p "${pidfile}" -o "${unifi_gateway_log}" \
+        /usr/local/bin/unifi-gateway run
+}
+
+unifi_gateway_stop()
+{
+    if [ -f "${pidfile}" ]; then
+        kill $(cat "${pidfile}") 2>/dev/null && echo "Stopped ${name}."
+        rm -f "${pidfile}"
+    else
+        echo "${name} is not running."
+    fi
+}
+
+unifi_gateway_status()
+{
+    if [ -f "${pidfile}" ] && kill -0 $(cat "${pidfile}") 2>/dev/null; then
+        echo "${name} is running as pid $(cat "${pidfile}")."
+    else
+        echo "${name} is not running."
+    fi
+}
+
+load_rc_config $name
+run_rc_command "$1"

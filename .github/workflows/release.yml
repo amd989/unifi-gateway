@@ -8,6 +8,8 @@ on:
 permissions:
   contents: write
   packages: write
+  pages: write
+  id-token: write
 
 env:
   PYINSTALLER_ARGS: >-
@@ -21,6 +23,8 @@ env:
     unifi_gateway.py
 
 jobs:
+  # ── Build PyInstaller binaries ──────────────────────────────────────
+
   build-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -31,12 +35,21 @@ jobs:
           - arch: amd64
             platform: linux/amd64
             suffix: linux-amd64
+            deb_arch: amd64
+            rpm_arch: x86_64
+            openwrt_arch: x86_64
           - arch: arm64
             platform: linux/arm64
             suffix: linux-arm64
+            deb_arch: arm64
+            rpm_arch: aarch64
+            openwrt_arch: aarch64_generic
           - arch: armhf
             platform: linux/arm/v7
             suffix: linux-armhf
+            deb_arch: armhf
+            rpm_arch: ""
+            openwrt_arch: arm_cortex-a7_neon-vfpv4
 
     steps:
       - uses: actions/checkout@v4
@@ -44,30 +57,91 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Build binary
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary + packages
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD":/build -w /build \
             python:3.12-slim bash -c '
               set -e
-              apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev zlib1g-dev
+              apt-get update && apt-get install -y --no-install-recommends \
+                gcc libc6-dev zlib1g-dev dpkg-dev debhelper ar
+
+              # Build PyInstaller binary
               pip install --no-cache-dir -r requirements.txt pyinstaller
               pyinstaller ${{ env.PYINSTALLER_ARGS }}
               ./dist/unifi-gateway --help
-              mv dist/unifi-gateway dist/unifi-gateway-${{ matrix.suffix }}
+              cp dist/unifi-gateway dist/unifi-gateway-${{ matrix.suffix }}
+
+              # Build .deb
+              sed -i "1s/([^)]*)/('"${{ steps.version.outputs.version }}"'-1)/" debian/changelog
+              dpkg-buildpackage -us -uc -b -a${{ matrix.deb_arch }}
+              mkdir -p output
+              mv ../*.deb output/
+
+              # Build .ipk
+              chmod +x pkg/openwrt/build-ipk.sh
+              ./pkg/openwrt/build-ipk.sh "${{ steps.version.outputs.version }}" "${{ matrix.openwrt_arch }}"
+              mv dist/*.ipk output/
             '
 
-      - name: Upload artifact
+      - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.suffix }}
           path: dist/unifi-gateway-${{ matrix.suffix }}
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.deb_arch }}
+          path: output/*.deb
+
+      - name: Upload ipk
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ matrix.openwrt_arch }}
+          path: output/*.ipk
+
+      - name: Build RPM
+        if: matrix.rpm_arch != ''
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD":/build -w /build \
+            rockylinux:9 bash -c '
+              set -e
+              VERSION='"${{ steps.version.outputs.version }}"'
+              dnf install -y rpm-build systemd-rpm-macros
+
+              mkdir -p /root/rpmbuild/{SOURCES,SPECS}
+              tar czf /root/rpmbuild/SOURCES/unifi-gateway-${VERSION}.tar.gz \
+                --transform "s,^\.,unifi-gateway-${VERSION}," \
+                --exclude=.git --exclude=__pycache__ --exclude=poc .
+              cp rpm/unifi-gateway.spec /root/rpmbuild/SPECS/
+              rpmbuild -bb --define "_version ${VERSION}" /root/rpmbuild/SPECS/unifi-gateway.spec
+              mkdir -p /build/output
+              cp /root/rpmbuild/RPMS/*/*.rpm /build/output/
+            '
+
+      - name: Upload RPM
+        if: matrix.rpm_arch != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.rpm_arch }}
+          path: output/*.rpm
 
   build-freebsd:
     runs-on: [self-hosted, freebsd]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: |
@@ -77,17 +151,30 @@ jobs:
         run: |
           python3 -m PyInstaller ${{ env.PYINSTALLER_ARGS }}
           ./dist/unifi-gateway --help
-          mv dist/unifi-gateway dist/unifi-gateway-freebsd-amd64
+          cp dist/unifi-gateway dist/unifi-gateway-freebsd-amd64
 
-      - name: Upload artifact
+      - name: Build FreeBSD .pkg
+        run: |
+          chmod +x pkg/freebsd/build-pkg.sh
+          sh pkg/freebsd/build-pkg.sh "${{ steps.version.outputs.version }}"
+
+      - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: binary-freebsd-amd64
           path: dist/unifi-gateway-freebsd-amd64
 
+      - name: Upload pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-freebsd-amd64
+          path: dist/*.pkg
+
       - name: Clean up
         if: always()
         run: rm -rf build dist *.spec
+
+  # ── Docker multi-arch image ────────────────────────────────────────
 
   docker:
     runs-on: ubuntu-latest
@@ -126,6 +213,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+  # ── GitHub Release ─────────────────────────────────────────────────
+
   release:
     needs: [build-linux, build-freebsd]
     runs-on: ubuntu-latest
@@ -133,12 +222,178 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist
-          pattern: binary-*
+          path: packages
           merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/unifi-gateway-*
+          files: |
+            packages/unifi-gateway-*
+            packages/*.deb
+            packages/*.rpm
+            packages/*.pkg
+            packages/*.ipk
           generate_release_notes: true
+
+  # ── Publish package repos on GitHub Pages ──────────────────────────
+
+  publish-repos:
+    needs: [build-linux, build-freebsd]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+        continue-on-error: true
+
+      - name: Initialize gh-pages if needed
+        run: |
+          if [ ! -f index.html ]; then
+            git init
+            git checkout -b gh-pages
+          fi
+
+      - name: Download deb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          path: incoming-deb
+          merge-multiple: true
+
+      - name: Download rpm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rpm-*
+          path: incoming-rpm
+          merge-multiple: true
+
+      - name: Download ipk artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ipk-*
+          path: incoming-ipk
+          merge-multiple: true
+
+      - name: Install repo tools
+        run: sudo apt-get update && sudo apt-get install -y reprepro createrepo-c
+
+      - name: Import or generate GPG key
+        run: |
+          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+            GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          else
+            cat > /tmp/gpg-batch <<GPGEOF
+              %no-protection
+              Key-Type: RSA
+              Key-Length: 4096
+              Subkey-Type: RSA
+              Subkey-Length: 4096
+              Name-Real: unifi-gateway
+              Name-Email: amd989@users.noreply.github.com
+              Expire-Date: 0
+          GPGEOF
+            gpg --batch --gen-key /tmp/gpg-batch
+            GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+            echo "::warning::Using auto-generated GPG key. For production, add GPG_PRIVATE_KEY secret."
+          fi
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
+          gpg --armor --export "$GPG_KEY_ID" > gpg.key
+
+      - name: Configure reprepro
+        run: |
+          mkdir -p conf
+          cat > conf/distributions <<EOF
+          Origin: unifi-gateway
+          Label: unifi-gateway
+          Codename: stable
+          Architectures: amd64 arm64 armhf
+          Components: main
+          Description: UniFi Gateway Emulator packages
+          SignWith: ${{ env.GPG_KEY_ID }}
+          EOF
+
+      - name: Build APT repo
+        run: |
+          for deb in incoming-deb/*.deb; do
+            reprepro includedeb stable "$deb"
+          done
+
+      - name: Build YUM/DNF repo
+        run: |
+          rm -rf rpm/packages rpm/repodata
+          mkdir -p rpm/packages
+          cp incoming-rpm/*.rpm rpm/packages/
+          gpg --batch --pinentry-mode loopback --detach-sign --armor rpm/packages/*.rpm 2>/dev/null || true
+          createrepo_c rpm/
+          gpg --batch --pinentry-mode loopback --detach-sign --armor rpm/repodata/repomd.xml
+
+      - name: Stage OpenWRT packages
+        run: |
+          mkdir -p openwrt
+          cp incoming-ipk/*.ipk openwrt/
+
+      - name: Fetch index page from source
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/amd989/unifi-gateway/${GITHUB_REF_NAME}/gh-pages/index.html" -o index.html
+
+      - name: Create APT setup script
+        run: |
+          cat > setup-apt.sh <<'EOF'
+          #!/bin/bash
+          set -e
+          echo "Adding unifi-gateway APT repository..."
+          curl -fsSL https://amd989.github.io/unifi-gateway/gpg.key | gpg --dearmor -o /usr/share/keyrings/unifi-gateway.gpg
+          echo "deb [signed-by=/usr/share/keyrings/unifi-gateway.gpg] https://amd989.github.io/unifi-gateway stable main" > /etc/apt/sources.list.d/unifi-gateway.list
+          apt-get update
+          echo "Done! Run: sudo apt install unifi-gateway"
+          EOF
+          chmod +x setup-apt.sh
+
+      - name: Create DNF setup script
+        run: |
+          cat > setup-rpm.sh <<'EOF'
+          #!/bin/bash
+          set -e
+          echo "Adding unifi-gateway YUM/DNF repository..."
+          rpm --import https://amd989.github.io/unifi-gateway/gpg.key
+          cat > /etc/yum.repos.d/unifi-gateway.repo <<REPOEOF
+          [unifi-gateway]
+          name=unifi-gateway
+          baseurl=https://amd989.github.io/unifi-gateway/rpm/
+          enabled=1
+          gpgcheck=1
+          gpgkey=https://amd989.github.io/unifi-gateway/gpg.key
+          REPOEOF
+          echo "Done! Run: sudo dnf install unifi-gateway"
+          EOF
+          chmod +x setup-rpm.sh
+
+      - name: Create opkg setup script
+        run: |
+          cat > setup-opkg.sh <<'EOF'
+          #!/bin/sh
+          set -e
+          echo "Adding unifi-gateway opkg feed..."
+          FEED="src/gz unifi-gateway https://amd989.github.io/unifi-gateway/openwrt"
+          if ! grep -q "unifi-gateway" /etc/opkg/customfeeds.conf 2>/dev/null; then
+            echo "$FEED" >> /etc/opkg/customfeeds.conf
+          fi
+          opkg update
+          echo "Done! Run: opkg install unifi-gateway"
+          EOF
+          chmod +x setup-opkg.sh
+
+      - name: Deploy to GitHub Pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm -rf incoming-deb incoming-rpm incoming-ipk conf
+          git add -A
+          git commit -m "Update repos for ${GITHUB_REF_NAME}" || true
+          git push origin gh-pages --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

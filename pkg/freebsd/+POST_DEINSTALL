@@ -1,0 +1,3 @@
+#!/bin/sh
+sysrc -x unifi_gateway_enable 2>/dev/null || true
+echo "Note: config files in /usr/local/etc/unifi-gateway/ were preserved."

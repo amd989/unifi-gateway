@@ -1,0 +1,18 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/unifi-gateway
+CONF=/etc/unifi-gateway/unifi-gateway.conf
+
+start_service() {
+    procd_open_instance
+    procd_set_param command $PROG run
+    procd_set_param env UNIFI_GW_CONFIG=$CONF UNIFI_GW_LOG_LEVEL=INFO
+    procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-10} ${respawn_retry:-5}
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_close_instance
+}
