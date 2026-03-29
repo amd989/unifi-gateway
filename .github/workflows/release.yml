@@ -114,14 +114,15 @@ jobs:
             rockylinux:9 bash -c '
               set -e
               VERSION='"${{ steps.version.outputs.version }}"'
+              RPM_VERSION=$(echo "$VERSION" | tr - .)
               dnf install -y rpm-build systemd-rpm-macros
 
               mkdir -p /root/rpmbuild/{SOURCES,SPECS}
-              tar czf /root/rpmbuild/SOURCES/unifi-gateway-${VERSION}.tar.gz \
-                --transform "s,^\.,unifi-gateway-${VERSION}," \
+              tar czf /root/rpmbuild/SOURCES/unifi-gateway-${RPM_VERSION}.tar.gz \
+                --transform "s,^\.,unifi-gateway-${RPM_VERSION}," \
                 --exclude=.git --exclude=__pycache__ --exclude=poc .
               cp rpm/unifi-gateway.spec /root/rpmbuild/SPECS/
-              rpmbuild -bb --define "_version ${VERSION}" /root/rpmbuild/SPECS/unifi-gateway.spec
+              rpmbuild -bb --define "_version ${RPM_VERSION}" /root/rpmbuild/SPECS/unifi-gateway.spec
               mkdir -p /build/output
               cp /root/rpmbuild/RPMS/*/*.rpm /build/output/
             '
