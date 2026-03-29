@@ -6,6 +6,8 @@ License:        MIT
 URL:            https://github.com/amd989/unifi-gateway
 Source0:        unifi-gateway-%{version}.tar.gz
 
+%global debug_package %{nil}
+
 %description
 A daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi
 Controller, allowing non-Ubiquiti routers (OpenWRT, OPNSense, pfSense)
