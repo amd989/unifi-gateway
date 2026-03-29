@@ -244,6 +244,7 @@ jobs:
             packages/*.pkg
             packages/*.ipk
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   # ── Publish package repos on GitHub Pages ──────────────────────────
 
