@@ -1,10 +1,6 @@
-# UniFi Gateway Emulator
+# UniFi Gateway Emulator  [![Build & Release](https://github.com/amd989/unifi-gateway/actions/workflows/release.yml/badge.svg)](https://github.com/amd989/unifi-gateway/actions/workflows/release.yml)
 
 A Python 3 daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi Controller. This allows non-Ubiquiti routers (OpenWRT, OPNSense, pfSense, or any Linux/FreeBSD router) to appear in the UniFi Controller UI and report network statistics.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
 
 ## How It Works
 
@@ -287,6 +283,10 @@ Results are saved to `speedtest.json` and reported in the next inform cycle.
 | `tools.py` | Helper functions for building `if_table` and `network_table` structures |
 | `tlv.py` | TLV encoding for UDP discovery packets |
 | `daemon.py` | Unix daemon (double-fork, PID file) |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
