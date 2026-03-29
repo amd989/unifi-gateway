@@ -349,6 +349,7 @@ jobs:
       - name: Fetch index page from source
         run: |
           curl -fsSL "https://raw.githubusercontent.com/amd989/unifi-gateway/${GITHUB_REF_NAME}/gh-pages/index.html" -o index.html
+          sed -i "s/{{VERSION}}/${GITHUB_REF_NAME#v}/g" index.html
 
       - name: Create APT setup script
         run: |
