@@ -1,0 +1,144 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  PYINSTALLER_ARGS: >-
+    --onefile
+    --name unifi-gateway
+    --hidden-import Crypto.Cipher._mode_cbc
+    --hidden-import Crypto.Cipher._mode_gcm
+    --hidden-import Crypto.Cipher._mode_ecb
+    --hidden-import Crypto.Util.Padding
+    --hidden-import Crypto.Random
+    unifi_gateway.py
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            suffix: linux-amd64
+          - arch: arm64
+            platform: linux/arm64
+            suffix: linux-arm64
+          - arch: armhf
+            platform: linux/arm/v7
+            suffix: linux-armhf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build binary
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "$PWD":/build -w /build \
+            python:3.12-slim bash -c '
+              set -e
+              apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev zlib1g-dev
+              pip install --no-cache-dir -r requirements.txt pyinstaller
+              pyinstaller ${{ env.PYINSTALLER_ARGS }}
+              ./dist/unifi-gateway --help
+              mv dist/unifi-gateway dist/unifi-gateway-${{ matrix.suffix }}
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.suffix }}
+          path: dist/unifi-gateway-${{ matrix.suffix }}
+
+  build-freebsd:
+    runs-on: [self-hosted, freebsd]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --break-system-packages -r requirements.txt pyinstaller
+
+      - name: Build binary
+        run: |
+          python3 -m PyInstaller ${{ env.PYINSTALLER_ARGS }}
+          ./dist/unifi-gateway --help
+          mv dist/unifi-gateway dist/unifi-gateway-freebsd-amd64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-freebsd-amd64
+          path: dist/unifi-gateway-freebsd-amd64
+
+      - name: Clean up
+        if: always()
+        run: rm -rf build dist *.spec
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/amd989/unifi-gateway
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    needs: [build-linux, build-freebsd]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/unifi-gateway-*
+          generate_release_notes: true

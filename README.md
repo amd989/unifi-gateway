@@ -30,6 +30,41 @@ Your UniFi APs, switches, and other devices continue connecting to the controlle
 - A running UniFi Controller (self-hosted or Cloud Key)
 - Network access from the daemon to the controller's `/inform` endpoint
 
+## Installation
+
+### Pre-built Binaries (Recommended)
+
+Download the latest standalone binary from [Releases](https://github.com/amd989/unifi-gateway/releases). No Python installation required.
+
+| Platform | Binary |
+|---|---|
+| Linux x86_64 | `unifi-gateway-linux-amd64` |
+| Linux ARM64 (OpenWRT) | `unifi-gateway-linux-arm64` |
+| Linux ARMv7 (OpenWRT) | `unifi-gateway-linux-armhf` |
+| FreeBSD x86_64 (OPNSense/pfSense) | `unifi-gateway-freebsd-amd64` |
+
+```bash
+# Download, make executable, and run
+chmod +x unifi-gateway-linux-amd64
+./unifi-gateway-linux-amd64 set-adopt -s http://your-controller:8080/inform
+./unifi-gateway-linux-amd64 run
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/amd989/unifi-gateway:latest
+docker compose up -d
+```
+
+See the [Docker section](#docker) below for details.
+
+### From Source
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Quick Start
 
 ### 1. Install dependencies

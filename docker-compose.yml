@@ -2,6 +2,7 @@ version: "3.8"
 
 services:
   unifi-gateway:
+    image: ghcr.io/amd989/unifi-gateway:latest
     build: .
     container_name: unifi-gateway
     restart: unless-stopped
