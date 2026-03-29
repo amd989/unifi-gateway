@@ -68,7 +68,7 @@ jobs:
             python:3.12-slim bash -c '
               set -e
               apt-get update && apt-get install -y --no-install-recommends \
-                gcc libc6-dev zlib1g-dev dpkg-dev debhelper binutils
+                gcc libc6-dev zlib1g-dev dpkg-dev debhelper binutils build-essential
 
               # Build PyInstaller binary
               pip install --no-cache-dir -r requirements.txt pyinstaller
