@@ -26,7 +26,6 @@ Your UniFi APs, switches, and other devices continue connecting to the controlle
 
 ## Requirements
 
-- Python 3.7+
 - A running UniFi Controller (self-hosted or Cloud Key)
 - Network access from the daemon to the controller's `/inform` endpoint
 
@@ -41,7 +40,7 @@ Download the latest standalone binary from [Releases](https://github.com/amd989/
 | Linux x86_64 | `unifi-gateway-linux-amd64` |
 | Linux ARM64 (OpenWRT) | `unifi-gateway-linux-arm64` |
 | Linux ARMv7 (OpenWRT) | `unifi-gateway-linux-armhf` |
-| FreeBSD x86_64 (OPNSense/pfSense) | `unifi-gateway-freebsd-amd64` |
+| FreeBSD x86_64 (OPNSense/pfSense) | `unifi-gateway-freebsd-amd64` (built on FreeBSD 14.3 — compatible with OPNSense 25.7+ and pfSense CE 2.7+) |
 
 ```bash
 # Download, make executable, and run
