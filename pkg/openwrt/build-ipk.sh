@@ -23,7 +23,7 @@ chmod 755 "$WORK/data/usr/bin/unifi-gateway"
 cp "$PKG_DIR/unifi-gateway.init" "$WORK/data/etc/init.d/unifi-gateway"
 chmod 755 "$WORK/data/etc/init.d/unifi-gateway"
 
-cp "$ROOT_DIR/conf/unifi-gateway.sample.conf" "$WORK/data/etc/unifi-gateway/unifi-gateway.conf"
+cp "$ROOT_DIR/conf/unifi-gateway.sample.conf" "$WORK/data/etc/unifi-gateway/unifi-gateway.sample.conf"
 
 # Create control file
 mkdir -p "$WORK/control"
@@ -40,11 +40,15 @@ License: MIT
 EOF
 
 cat > "$WORK/control/conffiles" <<EOF
-/etc/unifi-gateway/unifi-gateway.conf
+/etc/unifi-gateway/unifi-gateway.sample.conf
 EOF
 
 cat > "$WORK/control/postinst" <<'EOF'
 #!/bin/sh
+if [ ! -f /etc/unifi-gateway/unifi-gateway.conf ]; then
+    cp /etc/unifi-gateway/unifi-gateway.sample.conf /etc/unifi-gateway/unifi-gateway.conf
+    echo "Created /etc/unifi-gateway/unifi-gateway.conf from sample — edit before starting!"
+fi
 /etc/init.d/unifi-gateway enable 2>/dev/null || true
 echo "UniFi Gateway installed. Edit /etc/unifi-gateway/unifi-gateway.conf then run:"
 echo "  /etc/init.d/unifi-gateway start"

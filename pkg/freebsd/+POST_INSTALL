@@ -1,4 +1,8 @@
 #!/bin/sh
+if [ ! -f /usr/local/etc/unifi-gateway/unifi-gateway.conf ]; then
+    cp /usr/local/etc/unifi-gateway/unifi-gateway.sample.conf /usr/local/etc/unifi-gateway/unifi-gateway.conf
+    echo "Created /usr/local/etc/unifi-gateway/unifi-gateway.conf from sample — edit before starting!"
+fi
 echo "Enabling unifi_gateway service..."
 sysrc unifi_gateway_enable=YES 2>/dev/null || true
 echo ""
@@ -6,5 +10,3 @@ echo "=== UniFi Gateway installed ==="
 echo "  Config: /usr/local/etc/unifi-gateway/unifi-gateway.conf"
 echo "  Start:  service unifi_gateway start"
 echo "  Status: service unifi_gateway status"
-echo ""
-echo "Edit the config before starting!"

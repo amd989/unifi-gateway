@@ -22,7 +22,7 @@ to report network stats to the UniFi Controller UI.
 %install
 install -Dm755 dist/unifi-gateway %{buildroot}%{_bindir}/unifi-gateway
 install -Dm644 unifi-gateway.service %{buildroot}%{_unitdir}/unifi-gateway.service
-install -Dm644 conf/unifi-gateway.sample.conf %{buildroot}%{_sysconfdir}/unifi-gateway/unifi-gateway.conf
+install -Dm644 conf/unifi-gateway.sample.conf %{buildroot}%{_sysconfdir}/unifi-gateway/unifi-gateway.sample.conf
 
 %files
 %license LICENSE
@@ -30,9 +30,13 @@ install -Dm644 conf/unifi-gateway.sample.conf %{buildroot}%{_sysconfdir}/unifi-g
 %{_bindir}/unifi-gateway
 %{_unitdir}/unifi-gateway.service
 %dir %{_sysconfdir}/unifi-gateway
-%config(noreplace) %{_sysconfdir}/unifi-gateway/unifi-gateway.conf
+%{_sysconfdir}/unifi-gateway/unifi-gateway.sample.conf
 
 %post
+if [ ! -f %{_sysconfdir}/unifi-gateway/unifi-gateway.conf ]; then
+    cp %{_sysconfdir}/unifi-gateway/unifi-gateway.sample.conf %{_sysconfdir}/unifi-gateway/unifi-gateway.conf
+    echo "Created %{_sysconfdir}/unifi-gateway/unifi-gateway.conf from sample — edit before starting!"
+fi
 %systemd_post unifi-gateway.service
 
 %preun

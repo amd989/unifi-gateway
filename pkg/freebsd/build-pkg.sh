@@ -21,14 +21,14 @@ chmod 755 "$STAGING/usr/local/bin/unifi-gateway"
 cp "$PKG_DIR/rc.d/unifi_gateway" "$STAGING/usr/local/etc/rc.d/unifi_gateway"
 chmod 755 "$STAGING/usr/local/etc/rc.d/unifi_gateway"
 
-cp "$ROOT_DIR/conf/unifi-gateway.sample.conf" "$STAGING/usr/local/etc/unifi-gateway/unifi-gateway.conf"
+cp "$ROOT_DIR/conf/unifi-gateway.sample.conf" "$STAGING/usr/local/etc/unifi-gateway/unifi-gateway.sample.conf"
 
 # Generate plist (file manifest)
 PLIST="$(mktemp)"
 cat > "$PLIST" <<EOF
 /usr/local/bin/unifi-gateway
 /usr/local/etc/rc.d/unifi_gateway
-/usr/local/etc/unifi-gateway/unifi-gateway.conf
+/usr/local/etc/unifi-gateway/unifi-gateway.sample.conf
 EOF
 
 # Generate manifest with version substituted

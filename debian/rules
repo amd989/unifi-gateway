@@ -8,7 +8,7 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	dh_auto_install
-	install -Dm644 conf/unifi-gateway.sample.conf debian/unifi-gateway/etc/unifi-gateway/unifi-gateway.conf
+	install -Dm644 conf/unifi-gateway.sample.conf debian/unifi-gateway/etc/unifi-gateway/unifi-gateway.sample.conf
 
 override_dh_auto_clean:
 	@echo "Nothing to clean"

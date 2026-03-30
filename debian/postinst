@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    if [ ! -f /etc/unifi-gateway/unifi-gateway.conf ]; then
+        cp /etc/unifi-gateway/unifi-gateway.sample.conf /etc/unifi-gateway/unifi-gateway.conf
+        echo "Created /etc/unifi-gateway/unifi-gateway.conf from sample — edit before starting!"
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0
