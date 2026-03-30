@@ -4,44 +4,44 @@ Hash: SHA512
 Origin: unifi-gateway
 Label: unifi-gateway
 Codename: stable
-Date: Mon, 30 Mar 2026 00:39:02 UTC
+Date: Mon, 30 Mar 2026 01:14:34 UTC
 Architectures: amd64 arm64 armhf
 Components: main
 Description: UniFi Gateway Emulator packages
 MD5Sum:
- 1f2d1ecdf0429becf423448117961e1a 690 main/binary-amd64/Packages
- d3b16269a25ae76564b3d5d0c505ded1 471 main/binary-amd64/Packages.gz
+ 9df9c9ab843bee4a8b881a6537ac5e96 690 main/binary-amd64/Packages
+ 9ecb6afef6ef7eb82bc5d6e3383bbb24 471 main/binary-amd64/Packages.gz
  01fb541f115d622de3efc12fc35a0bf2 124 main/binary-amd64/Release
- ddd3be2453cdca36657e1f849db67626 690 main/binary-arm64/Packages
- b3f04f1820e380a0ab4a419d9e848182 474 main/binary-arm64/Packages.gz
+ 1a73257502b6bb8bb9a18e4c37853584 690 main/binary-arm64/Packages
+ d1845c727e4b764590c382d4bd9950b2 473 main/binary-arm64/Packages.gz
  e805065a748e2430d5a51e0c48ee3910 124 main/binary-arm64/Release
- b544904d25408c1d1b869db67d0e860d 688 main/binary-armhf/Packages
- 9c02072f0cdeb2bbacd19e80580b8d07 470 main/binary-armhf/Packages.gz
+ 5d9cc5af149a107852ce1863b73b1df7 688 main/binary-armhf/Packages
+ f1f0242cc025f3a2940773146699c312 469 main/binary-armhf/Packages.gz
  7a7657931dfa922f7c1d2df6a10f320e 124 main/binary-armhf/Release
 SHA1:
- 5eab63ed95c0541937d89e6942a5aa42c6b6ab15 690 main/binary-amd64/Packages
- f832eda9045e1395e96f561df74e8ec67ac86660 471 main/binary-amd64/Packages.gz
+ 0622568025f98b2ad7106038278782cbe949f2fe 690 main/binary-amd64/Packages
+ 23bafebf503f5a6ee1db1493521c096777f858ef 471 main/binary-amd64/Packages.gz
  3f99bcc04deac3af09e411adf16b0bcb3e96f7ec 124 main/binary-amd64/Release
- afc86e130ca4cbda1f75680b713d853a6d802f10 690 main/binary-arm64/Packages
- 38863be600b5fe6fa5ed5d706a48d829c57b817d 474 main/binary-arm64/Packages.gz
+ 45cdf5482f72272db2168ce9e74cf8c9025b6346 690 main/binary-arm64/Packages
+ 2537da7a3ca3c7a4502df0c32b1c0373fe8e9180 473 main/binary-arm64/Packages.gz
  462a4946313ebfa30cf75a0235c315c668bd7d2e 124 main/binary-arm64/Release
- f02e92de2f06afdc4f75b566c71c4747927fcc8f 688 main/binary-armhf/Packages
- 74510a47abdc456169541ba3149055eaeef1f31b 470 main/binary-armhf/Packages.gz
+ 54d9a20132116c05b08fc0c883c46664461238a0 688 main/binary-armhf/Packages
+ e8b349b46acf8a266a85a766f5398a40bda6f9b7 469 main/binary-armhf/Packages.gz
  c25ec5f2bec221b115d3ed867a09a9fde763cb7a 124 main/binary-armhf/Release
 SHA256:
- 6dc390fe11f3b15d3894a906bf17de6acea7ac36f80878a9124aa6dfeb88d4da 690 main/binary-amd64/Packages
- 2f9d1e5dbc58a2326306dd460b3aa6512e94b9e52c8affc8b195be191a34840f 471 main/binary-amd64/Packages.gz
+ 8a173f8f8eb168a0b9e226275739fdefe912a26cc463433d0d6512c966a45a16 690 main/binary-amd64/Packages
+ fd87300bd6c3a044b7ad892176b0799c9c77c52903a3b6a362b77cfb96cc4c12 471 main/binary-amd64/Packages.gz
  d840be773c2bc48f21f841cc4ef5023101e7ebcee1a0a675a5458743657ac4f6 124 main/binary-amd64/Release
- 94f9ef19fddb04331b31364ac91b83322b45679196eafa16079ec3858e6d7a86 690 main/binary-arm64/Packages
- 19d7aabdbf7e65b6e3274f79e482511e1d7162abeb0c756b0530bb6f9186c501 474 main/binary-arm64/Packages.gz
+ c6abfd5a5f700866ac9d7a0142c51209566b9a3b4664390af0e1d9255d265758 690 main/binary-arm64/Packages
+ 23e27022772b132bd34ca686e66be4142bb87ed27b595f5b975143b9a9c77a28 473 main/binary-arm64/Packages.gz
  2a622b8e2e1c1c6eb1b884efcd748d97e68f2fd831eb086d454cc7650b3e5742 124 main/binary-arm64/Release
- 9dc82cccfa80b856c035736e570e255baa7944010061c66611bef26ad9b88752 688 main/binary-armhf/Packages
- 04396f5a8c4ca2f500cd0efd074dfbaf21bb78f20d9bc6184502f10c59a208d5 470 main/binary-armhf/Packages.gz
+ 3f87b193a82f9bfbe3d06367b46ed64f8ebe8448f8282eca2e22fabb9e4ba36c 688 main/binary-armhf/Packages
+ edaa7d23986909dad29e9462fb7f5a14832960cbddf6b52bc8cc85c16dce394c 469 main/binary-armhf/Packages.gz
  18e8003682d180f93743ec25bb45d6320600fcad96c1bb18353f37483bc69120 124 main/binary-armhf/Release
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQR4ApcagzmD3WDNTB9opm47Dqb4JQUCacnGJgAKCRBopm47Dqb4
-JQDEAQCmUbNXuWgh+PRDnWQUZnU38YSw5UqZKgpZYDZuJ1te1gEA0ntHsBb5toqn
-ebSliU8ZstbgkaIiQTfyfLcFdC0hYAQ=
-=kP3C
+iHUEARYKAB0WIQR4ApcagzmD3WDNTB9opm47Dqb4JQUCacnOegAKCRBopm47Dqb4
+JRfSAQDxExr8xmZmHa+r4D2ujBGE46Gzs6/31KRu9eMqZSWHowD/bi22zHSq4p1T
+IINHbs/AX/JOEJZBECKxOzM5GSsYsgs=
+=KUoZ
 -----END PGP SIGNATURE-----
