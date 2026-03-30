@@ -51,7 +51,8 @@ opkg install unifi-gateway
 ### FreeBSD / OPNSense / pfSense (pkg)
 
 ```bash
-pkg add https://github.com/amd989/unifi-gateway/releases/latest/download/unifi-gateway-VERSION.pkg
+curl -fsSL https://amd989.github.io/unifi-gateway/setup-pkg.sh | sudo sh
+sudo pkg install unifi-gateway
 ```
 
 ### Docker

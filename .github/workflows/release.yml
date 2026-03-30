@@ -171,9 +171,21 @@ jobs:
           name: pkg-freebsd-amd64
           path: dist/*.pkg
 
+      - name: Build FreeBSD pkg repo
+        run: |
+          mkdir -p repo/freebsd
+          cp dist/*.pkg repo/freebsd/
+          pkg repo repo/freebsd/
+
+      - name: Upload pkg repo
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-repo-freebsd
+          path: repo/freebsd/
+
       - name: Clean up
         if: always()
-        run: rm -rf build dist *.spec
+        run: rm -rf build dist repo *.spec
 
   # ── Docker multi-arch image ────────────────────────────────────────
 
@@ -287,6 +299,13 @@ jobs:
           path: incoming-ipk
           merge-multiple: true
 
+      - name: Download FreeBSD pkg repo
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-repo-freebsd
+          path: incoming-pkg
+          merge-multiple: true
+
       - name: Install repo tools
         run: sudo apt-get update && sudo apt-get install -y reprepro createrepo-c
 
@@ -346,6 +365,12 @@ jobs:
           mkdir -p openwrt
           cp incoming-ipk/*.ipk openwrt/
 
+      - name: Stage FreeBSD pkg repo
+        run: |
+          mkdir -p freebsd
+          cp incoming-pkg/*.pkg incoming-pkg/meta.conf incoming-pkg/packagesite.* freebsd/ 2>/dev/null || true
+          cp incoming-pkg/* freebsd/ 2>/dev/null || true
+
       - name: Fetch index page from source
         run: |
           curl -fsSL "https://raw.githubusercontent.com/amd989/unifi-gateway/${GITHUB_REF_NAME}/gh-pages/index.html" -o index.html
@@ -397,6 +422,25 @@ jobs:
           echo "Done! Run: opkg install unifi-gateway"
           EOF
           chmod +x setup-opkg.sh
+
+      - name: Create FreeBSD pkg setup script
+        run: |
+          cat > setup-pkg.sh <<'EOF'
+          #!/bin/sh
+          set -e
+          echo "Adding unifi-gateway FreeBSD pkg repository..."
+          mkdir -p /usr/local/etc/pkg/repos
+          cat > /usr/local/etc/pkg/repos/unifi-gateway.conf <<REPOEOF
+          unifi-gateway: {
+            url: "https://amd989.github.io/unifi-gateway/freebsd",
+            enabled: yes,
+            signature_type: "none"
+          }
+          REPOEOF
+          pkg update
+          echo "Done! Run: pkg install unifi-gateway"
+          EOF
+          chmod +x setup-pkg.sh
 
       - name: Deploy to GitHub Pages
         run: |
