@@ -63,11 +63,17 @@ class UnifiGateway(Daemon):
         if not self.config.has_section('provisioned'):
             self.config.add_section('provisioned')
 
-        self.datacollector = create_collector(self.config)
-        self._unhandled = self._load_unhandled()
+        self.datacollector = None
+        self._unhandled = {}
         Daemon.__init__(
             self, pidfile=self.config.get('global', 'pid_file'), **kwargs
         )
+
+    def _init_collector(self):
+        """Initialize data collector and unhandled log. Called at run() time
+        so that stop/restart commands don't need a complete [gateway] config."""
+        self.datacollector = create_collector(self.config)
+        self._unhandled = self._load_unhandled()
 
     def _load_unhandled(self):
         try:
@@ -124,6 +130,7 @@ class UnifiGateway(Daemon):
         return self.config.getboolean('gateway', 'is_adopted')
 
     def run(self):
+        self._init_collector()
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
@@ -299,6 +306,8 @@ class UnifiGateway(Daemon):
         self.running = False
 
     def set_adopt(self, url, key):
+        if self.datacollector is None:
+            self._init_collector()
         self.config.set('gateway', 'url', url)
         if key:
             self.config.set('gateway', 'key', key)
