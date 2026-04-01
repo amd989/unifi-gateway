@@ -1,16 +1,16 @@
 Package: unifi-gateway
-Version: 0.2.0-1
+Version: 0.2.1-1
 Architecture: amd64
 Maintainer: amd989 <amd989@users.noreply.github.com>
-Installed-Size: 10607
+Installed-Size: 10609
 Homepage: https://github.com/amd989/unifi-gateway
 Priority: optional
 Section: net
-Filename: pool/main/u/unifi-gateway/unifi-gateway_0.2.0-1_amd64.deb
-Size: 10674656
-SHA256: 5366744ece4e38573cf707df2e9ff22df065eed6731b73769c9ebd1c1df35719
-SHA1: cb92244cda77b5e13d1ba2d1349b1dd9e87b628c
-MD5sum: f3ba0c1b3bb2b40b233cd8204fbc1b1e
+Filename: pool/main/u/unifi-gateway/unifi-gateway_0.2.1-1_amd64.deb
+Size: 10677012
+SHA256: 24ff68cbdad66e39576647621ab4153db8b935407b3f75b70b05dfb7bed4735a
+SHA1: b4958c72437db904dc1688cf536e1c999e00a9cc
+MD5sum: 632d0f1cc7cb0c3e673c4a15c17467a5
 Description: UniFi Gateway Emulator
  A daemon that emulates a Ubiquiti UniFi Gateway (UGW3) to a UniFi
  Controller, allowing non-Ubiquiti routers (OpenWRT, OPNSense, pfSense)

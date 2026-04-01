@@ -81,7 +81,7 @@
     <header>
       <h1>unifi-gateway</h1>
       <p>UniFi Gateway Emulator &mdash; Package Repository</p>
-      <p style="margin-top: 0.75rem;"><span style="background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.75rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; color: var(--green);">v0.2.0</span></p>
+      <p style="margin-top: 0.75rem;"><span style="background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.75rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; color: var(--green);">v0.2.1</span></p>
       <div class="links">
         <a href="https://github.com/amd989/unifi-gateway">GitHub</a>
         <a href="https://github.com/amd989/unifi-gateway/releases">Releases</a>
@@ -104,9 +104,12 @@
     </div>
 
     <div class="card">
-      <h2>opkg</h2>
-      <div class="distros">OpenWRT</div>
-      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-opkg.sh | sh</span>
+      <h2>OpenWRT</h2>
+      <div class="distros">OpenWRT (all versions &mdash; auto-detects apk or opkg)</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-openwrt.sh | sh</span>
+<span class="prompt"># </span><span style="color: var(--muted);">25.12+ (apk)</span>
+<span class="prompt">$ </span><span class="cmd">apk add unifi-gateway</span>
+<span class="prompt"># </span><span style="color: var(--muted);">pre-25.12 (opkg)</span>
 <span class="prompt">$ </span><span class="cmd">opkg install unifi-gateway</span></code></pre>
     </div>
 
