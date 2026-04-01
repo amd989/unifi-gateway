@@ -39,7 +39,15 @@ The codebase has no tests and no build/lint system. It uses psutil for cross-pla
 
 - `unifi_gateway.py` — Entry point and main loop. Subclasses `Daemon`, handles the inform loop (periodic POSTs to the controller), processes controller responses (`noop`, `setparam`, `reboot`, `cmd`, `upgrade`, `setdefault`). Manages adoption workflow and config persistence. Supports graceful shutdown via SIGTERM/SIGINT. Configurable via environment variables.
 - `unifi_protocol.py` — Implements the UniFi inform binary protocol. Handles AES-CBC and AES-GCM encryption/decryption, zlib/snappy compression, and builds the JSON inform payload (partial for unadopted, complete for adopted devices). Uses `MASTER_KEY` for unadopted communication, then switches to device-specific authkey after adoption.
-- `datacollector.py` — Cross-platform data collection via psutil: interface traffic, IP addresses, MAC addresses, system stats (CPU/mem). Platform-specific code handles DHCP leases (dnsmasq, ISC dhcpd, and KEA DHCP formats), neighbor/ARP tables (ip neigh on Linux, arp -an on FreeBSD), default gateway routing, DNS nameservers from resolv.conf, latency via ping, and speedtest results. Host table merges ARP and DHCP data with enriched fields for controller topology.
+- `collectors/` — Platform-aware data collection package with class hierarchy:
+  - `base.py` — `BaseCollector`: cross-platform logic via psutil (interface stats, IPs, MACs, CPU/mem, DHCP lease parsing for dnsmasq/ISC/KEA formats, DNS nameservers, latency, speedtest). Subclasses override `_get_default_gateway()` and `_get_neighbors_raw()`.
+  - `linux.py` — `LinuxCollector`: `/proc/net/dev` multicast, `/sys/class/net/` MAC fallback, `/proc/net/route` gateway, `ip neigh` neighbor table.
+  - `freebsd.py` — `FreeBSDCollector`: `netstat -rn` gateway, `arp -an` neighbor table.
+  - `opnsense.py` — `OPNSenseCollector(FreeBSDCollector)`: OPNSense REST API integration (ARP, Netflow, config push).
+  - `openwrt.py` — `OpenWRTCollector(LinuxCollector)`: ubus/LuCI RPC integration (leases, host hints, conntrack).
+  - `pfsense.py` — `PfSenseCollector(FreeBSDCollector)`: pfSense API integration.
+  - `__init__.py` — `create_collector(config)` factory with auto-detection (`platform = auto | linux | opnsense | openwrt | pfsense | freebsd`).
+- `datacollector.py` — Backward-compatibility shim, delegates to `collectors.create_collector()`.
 - `tools.py` — Helper functions for building `if_table` and `network_table` structures that the controller expects, plus conversion utilities (MAC/IP string-to-array, netmask-to-CIDR, uptime via psutil).
 - `tlv.py` — TLV (Type-Length-Value) encoding for UDP broadcast discovery messages.
 - `daemon.py` — Generic Unix daemon class (double-fork, PID file management).
