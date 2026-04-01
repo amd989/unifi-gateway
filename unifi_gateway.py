@@ -13,7 +13,7 @@ import time
 import urllib.request
 import urllib.error
 
-import datacollector
+from collectors import create_collector
 from daemon import Daemon
 from unifi_protocol import (
     create_broadcast_message, create_inform, encode_inform, decode_inform,
@@ -63,7 +63,7 @@ class UnifiGateway(Daemon):
         if not self.config.has_section('provisioned'):
             self.config.add_section('provisioned')
 
-        self.datacollector = datacollector.DataCollector(self.config)
+        self.datacollector = create_collector(self.config)
         self._unhandled = self._load_unhandled()
         Daemon.__init__(
             self, pidfile=self.config.get('global', 'pid_file'), **kwargs
