@@ -2,13 +2,10 @@
 """Tests for BaseCollector — cross-platform logic."""
 import io
 import json
-import os
 import textwrap
-import time
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch, MagicMock
 
 import psutil
-import pytest
 
 from collectors.base import BaseCollector
 from tests.conftest import MOCK_COUNTERS, MOCK_ADDRS
@@ -160,7 +157,7 @@ class TestInterfaceStats:
 
     def test_ifstat_rate_calculation(self, gateway_config, base_patches):
         dc = create_base(gateway_config)
-        from tests.conftest import NetIO, MOCK_COUNTERS
+        from tests.conftest import NetIO
         updated_counters = {
             'enp0s3': NetIO(2000, 4000, 20, 40, 0, 0, 0, 0),
             'enp0s8': NetIO(5000, 6000, 50, 60, 1, 2, 0, 0),
@@ -188,7 +185,6 @@ class TestMACAddresses:
     def test_mac_normalization(self, gateway_config):
         """Windows-style dash-separated MACs get normalized to colons."""
         from tests.conftest import SAddr, MOCK_COUNTERS
-        import socket
         dash_addrs = {
             'enp0s3': [SAddr(psutil.AF_LINK, 'AA-BB-CC-DD-EE-01', None, None, None)],
             'enp0s8': [SAddr(psutil.AF_LINK, 'AA-BB-CC-DD-EE-02', None, None, None)],
