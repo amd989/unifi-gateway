@@ -1,36 +1,48 @@
 #!/bin/sh
-# Build an OpenWRT .ipk from the PyInstaller binary
-# Usage: ./build-ipk.sh <version> <arch>
-#   arch: x86_64, aarch64_generic, arm_cortex-a7_neon-vfpv4, etc.
+# Build an OpenWRT .ipk (opkg) from Python source files.
+# Ships pure Python — depends on python3 + python3-psutil + python3-pycryptodome
+# from the OpenWRT feeds, so the package is architecture-independent.
+#
+# Usage: ./build-ipk.sh <version>
 set -e
 
-VERSION="${1:?Usage: build-ipk.sh <version> <arch>}"
-ARCH="${2:?Usage: build-ipk.sh <version> <arch>}"
+VERSION="${1:?Usage: build-ipk.sh <version>}"
 PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$PKG_DIR/../.." && pwd)"
 WORK="$(mktemp -d)"
 
 trap 'rm -rf "$WORK"' EXIT
 
-# Create data archive
+# ── Data (installed files) ─────────────────────────────────────────
 mkdir -p "$WORK/data/usr/bin"
+mkdir -p "$WORK/data/usr/lib/unifi-gateway/collectors"
 mkdir -p "$WORK/data/etc/init.d"
 mkdir -p "$WORK/data/etc/unifi-gateway"
 
-cp "$ROOT_DIR/dist/unifi-gateway" "$WORK/data/usr/bin/unifi-gateway"
+# Wrapper script
+cp "$PKG_DIR/unifi-gateway.wrapper" "$WORK/data/usr/bin/unifi-gateway"
 chmod 755 "$WORK/data/usr/bin/unifi-gateway"
 
+# Python source
+for f in unifi_gateway.py unifi_protocol.py tools.py tlv.py daemon.py datacollector.py; do
+    cp "$ROOT_DIR/$f" "$WORK/data/usr/lib/unifi-gateway/$f"
+done
+for f in __init__.py base.py linux.py freebsd.py openwrt.py opnsense.py pfsense.py; do
+    cp "$ROOT_DIR/collectors/$f" "$WORK/data/usr/lib/unifi-gateway/collectors/$f"
+done
+
+# Init script + sample config
 cp "$PKG_DIR/unifi-gateway.init" "$WORK/data/etc/init.d/unifi-gateway"
 chmod 755 "$WORK/data/etc/init.d/unifi-gateway"
-
 cp "$ROOT_DIR/conf/unifi-gateway.sample.conf" "$WORK/data/etc/unifi-gateway/unifi-gateway.sample.conf"
 
-# Create control file
+# ── Control metadata ───────────────────────────────────────────────
 mkdir -p "$WORK/control"
 cat > "$WORK/control/control" <<EOF
 Package: unifi-gateway
 Version: ${VERSION}
-Architecture: ${ARCH}
+Architecture: all
+Depends: python3, python3-psutil, python3-pycryptodome
 Maintainer: amd989 <amd989@users.noreply.github.com>
 Section: net
 Priority: optional
@@ -62,14 +74,13 @@ cat > "$WORK/control/prerm" <<'EOF'
 EOF
 chmod 755 "$WORK/control/prerm"
 
-# Build archives
+# ── Assemble .ipk ─────────────────────────────────────────────────
 cd "$WORK/data" && tar czf "$WORK/data.tar.gz" .
 cd "$WORK/control" && tar czf "$WORK/control.tar.gz" .
-
-# Build .ipk (ar archive)
 echo "2.0" > "$WORK/debian-binary"
+
 mkdir -p "$ROOT_DIR/dist"
-cd "$WORK" && ar r "$ROOT_DIR/dist/unifi-gateway_${VERSION}_${ARCH}.ipk" \
+cd "$WORK" && ar r "$ROOT_DIR/dist/unifi-gateway_${VERSION}_all.ipk" \
     debian-binary control.tar.gz data.tar.gz
 
-echo "Package created: dist/unifi-gateway_${VERSION}_${ARCH}.ipk"
+echo "Package created: dist/unifi-gateway_${VERSION}_all.ipk"

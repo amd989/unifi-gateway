@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 /usr/lib/unifi-gateway/unifi_gateway.py "$@"

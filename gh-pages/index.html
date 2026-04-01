@@ -104,9 +104,12 @@
     </div>
 
     <div class="card">
-      <h2>opkg</h2>
-      <div class="distros">OpenWRT</div>
-      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-opkg.sh | sh</span>
+      <h2>OpenWRT</h2>
+      <div class="distros">OpenWRT (all versions &mdash; auto-detects apk or opkg)</div>
+      <pre><code><span class="prompt">$ </span><span class="cmd">curl -fsSL https://amd989.github.io/unifi-gateway/setup-openwrt.sh | sh</span>
+<span class="prompt"># </span><span style="color: var(--muted);">25.12+ (apk)</span>
+<span class="prompt">$ </span><span class="cmd">apk add unifi-gateway</span>
+<span class="prompt"># </span><span style="color: var(--muted);">pre-25.12 (opkg)</span>
 <span class="prompt">$ </span><span class="cmd">opkg install unifi-gateway</span></code></pre>
     </div>
 

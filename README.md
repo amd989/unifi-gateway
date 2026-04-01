@@ -41,10 +41,22 @@ curl -fsSL https://amd989.github.io/unifi-gateway/setup-rpm.sh | sudo bash
 sudo dnf install unifi-gateway
 ```
 
-### OpenWRT (opkg)
+### OpenWRT
+
+The OpenWRT packages ship pure Python source and depend on `python3`, `python3-psutil`, and `python3-pycryptodome` from the OpenWRT feeds — keeping the package tiny for flash-constrained devices.
 
 ```bash
-curl -fsSL https://amd989.github.io/unifi-gateway/setup-opkg.sh | sh
+# Auto-detects apk (25.12+) or opkg (older)
+curl -fsSL https://amd989.github.io/unifi-gateway/setup-openwrt.sh | sh
+```
+
+Then install with whichever package manager your version uses:
+
+```bash
+# OpenWRT 25.12+ (apk)
+apk add unifi-gateway
+
+# OpenWRT pre-25.12 (opkg)
 opkg install unifi-gateway
 ```
 
@@ -219,7 +231,7 @@ Packages automatically install and enable the service. After configuring, just s
 | rc.d (FreeBSD/OPNSense) | `sudo service unifi_gateway start` | `tail -f /var/log/unifi-gateway.log` |
 | procd (OpenWRT) | `/etc/init.d/unifi-gateway start` | `logread -e unifi-gateway` |
 
-Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg upgrade`, or `pkg upgrade`.
+Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg upgrade`, `apk upgrade`, or `pkg upgrade`.
 
 ## Configuration Reference
 

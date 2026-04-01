@@ -33,7 +33,7 @@ docker compose up -d
 
 ## Architecture
 
-The codebase has no tests and no build/lint system. It uses psutil for cross-platform data collection (Linux + FreeBSD).
+The codebase uses psutil for cross-platform data collection (Linux + FreeBSD). Tests live in `tests/` using pytest.
 
 **Core modules:**
 
@@ -57,5 +57,7 @@ The codebase has no tests and no build/lint system. It uses psutil for cross-pla
 **Environment variables:** `UNIFI_GW_CONFIG` (config path), `UNIFI_GW_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR), `UNIFI_GW_LOG_FILE` (log to file).
 
 **Key protocol detail:** The inform packet format is `TNBU` magic + version + MAC + flags + IV + payload version + payload length + encrypted/compressed JSON payload. Flags indicate encryption type (CBC vs GCM) and compression (zlib vs snappy).
+
+**Packaging:** Most platforms (Debian, RHEL, FreeBSD) ship a PyInstaller binary. OpenWRT packages (`pkg/openwrt/`) ship pure Python source instead, depending on `python3`, `python3-psutil`, and `python3-pycryptodome` from the OpenWRT feeds. This keeps `.ipk`/`.apk` packages tiny for flash-constrained devices. A wrapper at `/usr/bin/unifi-gateway` invokes the Python source at `/usr/lib/unifi-gateway/`. Both `opkg` (pre-25.12) and `apk` (25.12+) formats are built.
 
 **Unhandled command log:** `conf/unhandled_commands.json` records controller operations we don't act on (unknown response types, commands, setparam keys, mgmt_cfg keys). This serves as a living TODO for missing features.

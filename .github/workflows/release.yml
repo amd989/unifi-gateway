@@ -37,19 +37,16 @@ jobs:
             suffix: linux-amd64
             deb_arch: amd64
             rpm_arch: x86_64
-            openwrt_arch: x86_64
           - arch: arm64
             platform: linux/arm64
             suffix: linux-arm64
             deb_arch: arm64
             rpm_arch: aarch64
-            openwrt_arch: aarch64_generic
           - arch: armhf
             platform: linux/arm/v7
             suffix: linux-armhf
             deb_arch: armhf
             rpm_arch: ""
-            openwrt_arch: arm_cortex-a7_neon-vfpv4
 
     steps:
       - uses: actions/checkout@v4
@@ -81,11 +78,6 @@ jobs:
               dpkg-buildpackage -us -uc -b -a${{ matrix.deb_arch }}
               mkdir -p output
               mv ../*.deb output/
-
-              # Build .ipk
-              chmod +x pkg/openwrt/build-ipk.sh
-              ./pkg/openwrt/build-ipk.sh "${{ steps.version.outputs.version }}" "${{ matrix.openwrt_arch }}"
-              mv dist/*.ipk output/
             '
 
       - name: Upload binary
@@ -99,12 +91,6 @@ jobs:
         with:
           name: deb-${{ matrix.deb_arch }}
           path: output/*.deb
-
-      - name: Upload ipk
-        uses: actions/upload-artifact@v4
-        with:
-          name: ipk-${{ matrix.openwrt_arch }}
-          path: output/*.ipk
 
       - name: Build RPM
         if: matrix.rpm_arch != ''
@@ -187,6 +173,40 @@ jobs:
         if: always()
         run: rm -rf build dist repo *.spec
 
+  # ── OpenWRT packages (pure Python, arch-independent) ──────────────
+
+  build-openwrt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build .ipk (opkg, pre-25.12)
+        run: |
+          chmod +x pkg/openwrt/build-ipk.sh
+          ./pkg/openwrt/build-ipk.sh "${{ steps.version.outputs.version }}"
+
+      - name: Build .apk (apk, 25.12+)
+        run: |
+          chmod +x pkg/openwrt/build-apk.sh
+          ./pkg/openwrt/build-apk.sh "${{ steps.version.outputs.version }}"
+
+      - name: Upload ipk
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-ipk
+          path: dist/*.ipk
+
+      - name: Upload apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-apk
+          path: dist/*.apk
+
   # ── Docker multi-arch image ────────────────────────────────────────
 
   docker:
@@ -229,7 +249,7 @@ jobs:
   # ── GitHub Release ─────────────────────────────────────────────────
 
   release:
-    needs: [build-linux, build-freebsd]
+    needs: [build-linux, build-freebsd, build-openwrt]
     runs-on: ubuntu-latest
     steps:
       - name: Download binary artifacts
@@ -243,7 +263,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: packages
-          pattern: '{deb,rpm,pkg,ipk}-*'
+          pattern: '{deb,rpm,pkg,openwrt}-*'
           merge-multiple: true
 
       - name: Create GitHub Release
@@ -255,13 +275,14 @@ jobs:
             packages/*.rpm
             packages/*.pkg
             packages/*.ipk
+            packages/*.apk
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
 
   # ── Publish package repos on GitHub Pages ──────────────────────────
 
   publish-repos:
-    needs: [build-linux, build-freebsd]
+    needs: [build-linux, build-freebsd, build-openwrt]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout gh-pages
@@ -292,11 +313,18 @@ jobs:
           path: incoming-rpm
           merge-multiple: true
 
-      - name: Download ipk artifacts
+      - name: Download OpenWRT ipk artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: ipk-*
+          pattern: openwrt-ipk
           path: incoming-ipk
+          merge-multiple: true
+
+      - name: Download OpenWRT apk artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: openwrt-apk
+          path: incoming-apk
           merge-multiple: true
 
       - name: Download FreeBSD pkg repo
@@ -362,8 +390,9 @@ jobs:
 
       - name: Stage OpenWRT packages
         run: |
-          mkdir -p openwrt
-          cp incoming-ipk/*.ipk openwrt/
+          mkdir -p openwrt/ipk openwrt/apk
+          cp incoming-ipk/*.ipk openwrt/ipk/
+          cp incoming-apk/*.apk openwrt/apk/
 
       - name: Stage FreeBSD pkg repo
         run: |
@@ -408,20 +437,34 @@ jobs:
           EOF
           chmod +x setup-rpm.sh
 
-      - name: Create opkg setup script
+      - name: Create OpenWRT setup script
         run: |
-          cat > setup-opkg.sh <<'EOF'
+          cat > setup-openwrt.sh <<'OUTER'
           #!/bin/sh
           set -e
-          echo "Adding unifi-gateway opkg feed..."
-          FEED="src/gz unifi-gateway https://amd989.github.io/unifi-gateway/openwrt"
-          if ! grep -q "unifi-gateway" /etc/opkg/customfeeds.conf 2>/dev/null; then
-            echo "$FEED" >> /etc/opkg/customfeeds.conf
+          REPO="https://amd989.github.io/unifi-gateway/openwrt"
+          if command -v apk >/dev/null 2>&1; then
+            echo "Detected apk (OpenWrt 25.12+)..."
+            REPO_LINE="$REPO/apk"
+            if ! grep -q "unifi-gateway" /etc/apk/repositories 2>/dev/null; then
+              echo "$REPO_LINE" >> /etc/apk/repositories
+            fi
+            apk update
+            echo "Done! Run: apk add unifi-gateway"
+          elif command -v opkg >/dev/null 2>&1; then
+            echo "Detected opkg (OpenWrt pre-25.12)..."
+            FEED="src/gz unifi-gateway $REPO/ipk"
+            if ! grep -q "unifi-gateway" /etc/opkg/customfeeds.conf 2>/dev/null; then
+              echo "$FEED" >> /etc/opkg/customfeeds.conf
+            fi
+            opkg update
+            echo "Done! Run: opkg install unifi-gateway"
+          else
+            echo "Error: neither apk nor opkg found. Is this OpenWrt?" >&2
+            exit 1
           fi
-          opkg update
-          echo "Done! Run: opkg install unifi-gateway"
-          EOF
-          chmod +x setup-opkg.sh
+          OUTER
+          chmod +x setup-openwrt.sh
 
       - name: Create FreeBSD pkg setup script
         run: |
@@ -446,7 +489,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf incoming-deb incoming-rpm incoming-ipk conf
+          rm -rf incoming-deb incoming-rpm incoming-ipk incoming-apk conf
           git add -A
           git commit -m "Update repos for ${GITHUB_REF_NAME}" || true
           git push origin gh-pages --force
