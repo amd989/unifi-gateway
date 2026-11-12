@@ -271,10 +271,42 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 | `ping_target` | `ping.ubnt.com` | Host for latency measurement |
 | `speedtest_file` | `./speedtest.json` | Path to speedtest results JSON |
 | `platform` | `UNIFI-GW` | Platform string in discovery broadcasts |
+| `extra_inform` | *(none)* | JSON object merged into every complete inform last (testing/overrides) |
 
 #### `[provisioned]`
 
 Populated automatically by the controller after adoption. Do not edit manually.
+
+## Emulating a Gateway Lite (UXG) instead of a USG
+
+UniFi Network 10.6 is the last release line that supports the USG (`UGW3`). With `device = UXG` the daemon poses
+as a UniFi Gateway Lite, a supported UniFi OS gateway, and the controller provisions it with the UniFi OS ("udapi")
+config format instead of the USG one.
+
+```ini
+[gateway]
+device = UXG
+device_display = Gateway Lite
+firmware = 4.1.13.20446
+# Gateway Lite ports: eth0 = LAN, eth1 = WAN (optional per port: "mac", "port_idx", "media", "speed")
+ports = [ { "ifname": "eth0", "name": "LAN", "type": "lan", "realif": "br-lan" },
+          { "ifname": "eth1", "name": "WAN", "type": "wan", "realif": "wan" } ]
+```
+
+For any model that isn't `UGW*`, the complete inform also carries:
+
+- `port_table`: one entry per configured port with `port_idx` and `name` = the emulated ifname, plus live counters.
+  Without it the controller logs `Could not find port information for NetworkConf interface eth1` and sends no
+  interfaces or DHCP config. The WAN entry is merged into the controller's WAN stats, so the counters must be live.
+- `udapi_version.versionDetail`: the udapi features the "firmware" supports. The controller only sends config
+  sections listed here (`services/dhcpServers`, `interfaces`, `vlans`, ...).
+- `leaseExpiry` per `ipv4_active_leases` entry, and `active_dhcp_lease_count` on the LAN `network_table` entry.
+
+The config arrives as `setparam` → `system_cfg`, a JSON string `{"udapi": {...}, "ubntconf": "..."}`.
+`udapi.services.dhcpServers[]` holds each network's pool, lease time, DNS, domain, options and
+`staticLeases[{"id": MAC, "addresses": [IP]}]`. It's recorded in `unhandled_commands.json` and contains secrets
+(tokens, certificates, password hashes). Moving an existing USG to UXG means forgetting the device and adopting
+it again. Tested against UniFi Network 10.6.109 only, not UniFi OS Server or Network 11.
 
 ## Speed Test
 

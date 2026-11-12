@@ -155,6 +155,33 @@ def _create_partial_inform(config, dc):
     })
 
 
+# udapi features (and schema versions) a UniFi OS gateway reports. The controller only sends config
+# sections for features listed here ("UDAPI feature X is defined, but is not supported by firmware").
+UDAPI_VERSION_DETAIL = {
+    'interfaces': 40,
+    'services/dhcpServers': 2,
+    'vlans': 1,
+    'firewall/settings': 1,
+    'services/ntpClient': 1,
+    'services/sshServer': 1,
+    'services/systemLog': 1,
+    'services/lldp': 1,
+    'services/upnp': 1,
+    'services/igmpProxy': 1,
+    'services/dpi': 1,
+    'routes/tables': 1,
+    'system/users': 1,
+    'qos': 1,
+    'bridge-firewall': 1,
+    'services/discoveryResponder': 1,
+}
+
+
+def is_unifi_os_gateway(config):
+    """True for UniFi OS gateway models (UXG etc.); False for the classic USG (UGW*) models."""
+    return not config.get('gateway', 'device').upper().startswith('UGW')
+
+
 def _create_complete_inform(config, dc):
     ports = ast.literal_eval(config.get('gateway', 'ports'))
     lan_if = [d['ifname'] for d in ports if d['type'].lower() == 'lan'][0]
@@ -171,6 +198,9 @@ def _create_complete_inform(config, dc):
     active_leases = []
     for lease in dc.data.get('dhcp_leases', []):
         entry = {'mac': lease['mac'], 'ip': lease['ip']}
+        # UniFi OS gateways report lease expiry (epoch seconds) per lease
+        if str(lease.get('expiry', '')).isdigit():
+            entry['leaseExpiry'] = int(lease['expiry'])
         if 'hostname' in lease:
             entry['hostname'] = lease['hostname']
         active_leases.append(entry)
@@ -238,7 +268,44 @@ def _create_complete_inform(config, dc):
         'if_table': get_if_table(dc.data, ports),
     }
 
+    if is_unifi_os_gateway(config):
+        # UniFi OS gateways (e.g. UXG = Gateway Lite) need a port_table (port_idx + name=ifname),
+        # or the controller finds no port information and sends no interfaces/DHCP config.
+        payload['port_table'] = _build_port_table(dc, ports)
+        # Without udapi_version.versionDetail the controller sends no udapi config sections.
+        payload['udapi_version'] = {'versionDetail': dict(UDAPI_VERSION_DETAIL)}
+
+    # Optional raw JSON merged into the inform last (testing / overriding fields)
+    if config.has_option('gateway', 'extra_inform'):
+        payload.update(json.loads(config.get('gateway', 'extra_inform')))
     return json.dumps(payload)
+
+
+def _build_port_table(dc, ports):
+    """One entry per configured port, with live counters (UniFi OS gateway inform format)."""
+    table = []
+    ifstat = dc.data.get('ifstat', {})
+    for idx, port in enumerate(ports, start=1):
+        ifname = port['ifname']
+        st = ifstat.get(ifname, {})
+        entry = {
+            'port_idx': int(port.get('port_idx', idx)),
+            'name': ifname,
+            'ifname': ifname,
+            'media': port.get('media', 'GE'),
+            'speed': int(port.get('speed', 1000)),
+            'full_duplex': True,
+            'up': ifname in dc.data.get('ip', {}) or bool(st),
+            'enable': True,
+            'is_uplink': port['type'].lower() == 'wan',
+            'mac': port.get('mac') or dc.data.get('macs', {}).get(ifname, '00:00:00:00:00:00'),
+        }
+        for k in ('rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets', 'rx_errors', 'tx_errors',
+                  'rx_dropped', 'tx_dropped', 'rx_multicast'):
+            if k in st:
+                entry[k] = int(st[k])
+        table.append(entry)
+    return table
 
 
 def _build_routes(dc, wan_if, lan_if):

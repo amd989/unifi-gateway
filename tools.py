@@ -105,6 +105,8 @@ def get_network_table(data, ports):
         }
         if iface == lan_if:
             net_entry['host_table'] = data.get('host_table', [])
+            # UniFi OS controllers compare this sum with ipv4_active_leases to decide when to re-pull leases
+            net_entry['active_dhcp_lease_count'] = len(data.get('dhcp_leases', []))
         elif iface == wan_if:
             if 'gateway' in data['ip'].get(iface, {}):
                 net_entry['gateways'] = [data['ip'][iface]['gateway']]

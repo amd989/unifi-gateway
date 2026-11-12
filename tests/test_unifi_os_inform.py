@@ -1,0 +1,86 @@
+# -*- coding: utf-8 -*-
+"""Inform payload for UniFi OS gateway models (UXG = Gateway Lite) vs the classic USG."""
+import json
+from types import SimpleNamespace
+
+import pytest
+
+import unifi_protocol
+from unifi_protocol import _create_complete_inform, is_unifi_os_gateway
+
+
+def _dc():
+    stats = {'rx_bytes': '1000', 'tx_bytes': '2000', 'rx_packets': '10', 'tx_packets': '20',
+             'rx_errors': '0', 'tx_errors': '0', 'rx_dropped': '0', 'tx_dropped': '0',
+             'rx_multicast': '0', 'rx_bps': 0, 'tx_bps': 0}
+    return SimpleNamespace(data={
+        'ifstat': {'eth0': dict(stats), 'eth1': dict(stats, rx_bytes='5000')},
+        'ip': {'eth0': {'address': '192.168.1.1', 'netmask': '255.255.255.0'},
+               'eth1': {'address': '203.0.113.7', 'netmask': '255.255.255.0', 'gateway': '203.0.113.1'}},
+        'macs': {'eth0': '02:00:00:00:00:01', 'eth1': '02:00:00:00:00:02'},
+        'dhcp_leases': [{'expiry': '1794602129', 'mac': '02:11:22:33:44:55', 'ip': '192.168.1.50',
+                         'hostname': 'nas'}],
+        'nameservers': ['1.1.1.1'],
+    })
+
+
+@pytest.fixture
+def config(gateway_config):
+    gateway_config.set('gateway', 'ports',
+                       '[{"ifname":"eth0","name":"LAN","type":"lan","realif":"br-lan"},'
+                       '{"ifname":"eth1","name":"WAN","type":"wan","realif":"wan"}]')
+    for k, v in {'device_display': 'Gateway Lite', 'url': 'http://c/inform', 'lan_ip': '192.168.1.1',
+                 'lan_mac': '02:00:00:00:00:01', 'hostname': 'gw'}.items():
+        gateway_config.set('gateway', k, v)
+    return gateway_config
+
+
+@pytest.fixture(autouse=True)
+def _no_system_calls(monkeypatch):
+    monkeypatch.setattr(unifi_protocol, 'uptime', lambda: 100)
+
+
+def _inform(config, device):
+    config.set('gateway', 'device', device)
+    return json.loads(_create_complete_inform(config, _dc()))
+
+
+def test_model_detection(config):
+    config.set('gateway', 'device', 'UGW3')
+    assert not is_unifi_os_gateway(config)
+    config.set('gateway', 'device', 'UXG')
+    assert is_unifi_os_gateway(config)
+
+
+def test_usg_inform_unchanged(config):
+    p = _inform(config, 'UGW3')
+    assert 'port_table' not in p
+    assert 'udapi_version' not in p
+
+
+def test_uxg_port_table_names_and_live_counters(config):
+    p = _inform(config, 'UXG')
+    ports = {e['name']: e for e in p['port_table']}
+    assert [e['port_idx'] for e in p['port_table']] == [1, 2]
+    assert ports['eth0']['ifname'] == 'eth0' and not ports['eth0']['is_uplink']
+    assert ports['eth1']['is_uplink'] and ports['eth1']['mac'] == '02:00:00:00:00:02'
+    # live counters as ints: the controller merges this entry over if_table when it builds the WAN stats
+    assert ports['eth1']['rx_bytes'] == 5000 and ports['eth1']['tx_packets'] == 20
+
+
+def test_uxg_udapi_version_detail(config):
+    detail = _inform(config, 'UXG')['udapi_version']['versionDetail']
+    assert detail['services/dhcpServers'] == 2
+    assert detail['interfaces'] == 40
+
+
+def test_lease_expiry_and_count(config):
+    p = _inform(config, 'UXG')
+    assert p['ipv4_active_leases'][0]['leaseExpiry'] == 1794602129
+    lan = [n for n in p['network_table'] if n['name'] == 'eth0'][0]
+    assert lan['active_dhcp_lease_count'] == 1
+
+
+def test_extra_inform_overrides(config):
+    config.set('gateway', 'extra_inform', '{"udapi_version": {"versionDetail": {"interfaces": 41}}}')
+    assert _inform(config, 'UXG')['udapi_version']['versionDetail'] == {'interfaces': 41}
