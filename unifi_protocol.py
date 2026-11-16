@@ -327,15 +327,17 @@ def _build_uptime_stats(config, dc, wan_if):
     latency = dc.data.get('latency') or 0
     reachable = has_ip and latency > 0
     monitor = {'target': target, 'type': 'icmp',
-               'availability': 100.0 if reachable else 0.0,
+               'availability': 100 if reachable else 0,
                'latency_average': int(round(latency))}
+    # The controller reads the WAN's latency/availability from the FIRST alerting_monitors entry (the UI shows
+    # "Connection: Failed" without it); the name notwithstanding, real gateways list their monitors there.
     return {'WAN': {
         'uptime': uptime() if has_ip else 0,
         'availability': monitor['availability'],
         'latency_average': monitor['latency_average'],
         'time_period': 300,
         'monitors': [monitor],
-        'alerting_monitors': [] if reachable else [{'target': target, 'type': 'icmp'}],
+        'alerting_monitors': [dict(monitor)],
     }}
 
 

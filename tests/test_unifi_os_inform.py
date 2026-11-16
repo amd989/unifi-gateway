@@ -124,14 +124,16 @@ def test_configured_speed_wins(config):
 
 def test_uptime_stats_wan_online(config):
     wan = _inform_dc(config, _dc_with(latency=3.5))['uptime_stats']['WAN']
-    assert wan['uptime'] == 100 and wan['availability'] == 100.0
-    assert wan['latency_average'] == 4 and wan['alerting_monitors'] == []
+    assert wan['uptime'] == 100 and wan['availability'] == 100
+    # the controller takes latency/availability from alerting_monitors[0]
+    first = wan['alerting_monitors'][0]
+    assert (first['availability'], first['latency_average'], first['type']) == (100, 4, 'icmp')
 
 
 def test_uptime_stats_wan_unreachable(config):
     wan = _inform_dc(config, _dc_with(latency=0))['uptime_stats']['WAN']
     assert wan['uptime'] == 100            # link has an IP: up
-    assert wan['availability'] == 0.0 and wan['alerting_monitors']
+    assert wan['availability'] == 0 and wan['alerting_monitors'][0]['availability'] == 0
 
 
 def test_usg_has_no_uptime_stats(config):

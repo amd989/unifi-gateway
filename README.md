@@ -302,7 +302,8 @@ For any model that isn't `UGW*`, the complete inform also carries:
   entry becomes the controller's WAN stats (throughput, "Down/Up Activity"). Speed is the detected link speed
   (psutil), or the port's `speed`; the media follows from it (`FE`, `GE`, `2.5GE`, `10GE`) unless `media` is set.
 - `uptime_stats.WAN`: uptime, availability and latency from the ping to `ping_target`. The controller marks the
-  WAN online when `uptime > 0`, and shows a failed connection when `alerting_monitors` isn't empty.
+  WAN online when `uptime > 0`, and takes latency/availability from the first `alerting_monitors` entry. The UI's
+  "Connection" is Excellent at availability 100 and latency < 50 ms, and Failed when those values are missing.
 - `udapi_version.versionDetail`: the udapi features the "firmware" supports. The controller only sends config
   sections listed here (`services/dhcpServers`, `interfaces`, `vlans`, ...).
 - `leaseExpiry` per `ipv4_active_leases` entry, and `active_dhcp_lease_count` on the LAN `network_table` entry.
