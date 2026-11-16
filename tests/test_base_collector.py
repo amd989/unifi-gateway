@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for BaseCollector — cross-platform logic."""
+import pytest
 import io
 import json
 import textwrap
@@ -201,6 +202,23 @@ class TestMACAddresses:
              patch('os.path.getmtime', side_effect=FileNotFoundError):
             dc = BaseCollector(gateway_config)
         assert dc.data['macs']['eth0'] == 'aa:bb:cc:dd:ee:01'
+
+
+    def test_configured_port_mac_wins(self, gateway_config, base_patches):
+        """A "mac" on the port overrides detection (PPPoE interfaces have no MAC)."""
+        gateway_config.set('gateway', 'ports',
+                           '[{"ifname":"eth0","name":"WAN","type":"wan","realif":"pppoe-wan","mac":"1A-0E-E3-DE-26-90"},'
+                           '{"ifname":"eth1","name":"LAN","type":"lan","realif":"enp0s8"}]')
+        dc = create_base(gateway_config)
+        assert dc.data['macs']['eth0'] == '1a:0e:e3:de:26:90'
+        assert dc.data['macs']['eth1'] == 'aa:bb:cc:dd:ee:02'
+
+    def test_configured_port_mac_invalid(self, gateway_config, base_patches):
+        gateway_config.set('gateway', 'ports',
+                           '[{"ifname":"eth0","name":"WAN","type":"wan","realif":"enp0s3","mac":"not-a-mac"},'
+                           '{"ifname":"eth1","name":"LAN","type":"lan","realif":"enp0s8"}]')
+        with pytest.raises(ValueError):
+            create_base(gateway_config)
 
 
 class TestIPAddresses:

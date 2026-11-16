@@ -258,7 +258,7 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 
 | Key | Default | Description |
 |---|---|---|
-| `ports` | *(required)* | JSON list mapping UniFi ports to real interfaces |
+| `ports` | *(required)* | JSON list mapping UniFi ports to real interfaces. Optional per port: `mac` (overrides detection, e.g. for PPPoE interfaces without a MAC) |
 | `lan_ip` | *(required)* | LAN IP address |
 | `lan_mac` | *(required)* | LAN MAC address |
 | `firmware` | `4.4.18.5052168` | Reported firmware version |

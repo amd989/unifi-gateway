@@ -122,7 +122,14 @@ class BaseCollector:
         for port in self.ports:
             realif = port['realif']
             ifname = port['ifname']
-            mac = None
+            # A MAC set on the port in the config wins; needed for interfaces without one (e.g. PPPoE)
+            mac = port.get('mac')
+            if mac:
+                mac = str(mac).replace('-', ':').lower()
+                if not re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac):
+                    raise ValueError('invalid configured MAC for port %s' % ifname)
+                ret[ifname] = mac
+                continue
 
             if realif in addrs:
                 for addr in addrs[realif]:
