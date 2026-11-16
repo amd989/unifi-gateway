@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Inform payload for UniFi OS gateway models (UXG = Gateway Lite) vs the classic USG."""
 import json
 from types import SimpleNamespace
@@ -77,7 +76,7 @@ def test_uxg_udapi_version_detail(config):
 def test_lease_expiry_and_count(config):
     p = _inform(config, 'UXG')
     assert p['ipv4_active_leases'][0]['leaseExpiry'] == 1794602129
-    lan = [n for n in p['network_table'] if n['name'] == 'eth0'][0]
+    lan = next(n for n in p['network_table'] if n['name'] == 'eth0')
     assert lan['active_dhcp_lease_count'] == 1
 
 

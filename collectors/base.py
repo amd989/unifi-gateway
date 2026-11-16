@@ -117,7 +117,7 @@ class BaseCollector:
         ret = {}
         try:
             stats = psutil.net_if_stats()
-        except Exception as e:
+        except OSError as e:
             logger.debug('Failed to get interface stats: %s', e)
             return ret
         for port in self.ports:
@@ -144,7 +144,7 @@ class BaseCollector:
             if mac:
                 mac = str(mac).replace('-', ':').lower()
                 if not re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac):
-                    raise ValueError('invalid configured MAC for port %s' % ifname)
+                    raise ValueError(f'invalid configured MAC for port {ifname}')
                 ret[ifname] = mac
                 continue
 

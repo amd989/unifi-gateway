@@ -328,7 +328,7 @@ def _build_uptime_stats(config, dc, wan_if):
     reachable = has_ip and latency > 0
     monitor = {'target': target, 'type': 'icmp',
                'availability': 100 if reachable else 0,
-               'latency_average': int(round(latency))}
+               'latency_average': round(latency)}
     # The controller reads the WAN's latency/availability from the FIRST alerting_monitors entry (the UI shows
     # "Connection: Failed" without it); the name notwithstanding, real gateways list their monitors there.
     return {'WAN': {
