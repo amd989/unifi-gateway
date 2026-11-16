@@ -287,17 +287,22 @@ config format instead of the USG one.
 [gateway]
 device = UXG
 device_display = Gateway Lite
-firmware = 4.1.13.20446
-# Gateway Lite ports: eth0 = LAN, eth1 = WAN (optional per port: "mac", "port_idx", "media", "speed")
+# use the version the controller lists as current for UXG, or it shows an Update button
+firmware = 6.0.17.36539
+# Gateway Lite ports: eth0 = LAN, eth1 = WAN (optional per port: "mac", "port_idx", "media", "speed" in Mb/s)
 ports = [ { "ifname": "eth0", "name": "LAN", "type": "lan", "realif": "br-lan" },
           { "ifname": "eth1", "name": "WAN", "type": "wan", "realif": "wan" } ]
 ```
 
 For any model that isn't `UGW*`, the complete inform also carries:
 
-- `port_table`: one entry per configured port with `port_idx` and `name` = the emulated ifname, plus live counters.
-  Without it the controller logs `Could not find port information for NetworkConf interface eth1` and sends no
-  interfaces or DHCP config. The WAN entry is merged into the controller's WAN stats, so the counters must be live.
+- `port_table`: one entry per configured port with `port_idx` and `name` = the emulated ifname, plus live counters
+  and rates (`rx_bytes-r`/`tx_bytes-r` in bytes/s, `rx_rate`/`tx_rate` in bits/s). Without it the controller logs
+  `Could not find port information for NetworkConf interface eth1` and sends no interfaces or DHCP config. The WAN
+  entry becomes the controller's WAN stats (throughput, "Down/Up Activity"). Speed is the detected link speed
+  (psutil), or the port's `speed`; the media follows from it (`FE`, `GE`, `2.5GE`, `10GE`) unless `media` is set.
+- `uptime_stats.WAN`: uptime, availability and latency from the ping to `ping_target`. The controller marks the
+  WAN online when `uptime > 0`, and shows a failed connection when `alerting_monitors` isn't empty.
 - `udapi_version.versionDetail`: the udapi features the "firmware" supports. The controller only sends config
   sections listed here (`services/dhcpServers`, `interfaces`, `vlans`, ...).
 - `leaseExpiry` per `ipv4_active_leases` entry, and `active_dhcp_lease_count` on the LAN `network_table` entry.

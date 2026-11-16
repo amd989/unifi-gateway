@@ -37,6 +37,7 @@ class BaseCollector:
 
     def update(self):
         self.data['ifstat'] = self._get_ifstat()
+        self.data['link_speeds'] = self._get_link_speeds()
         self.data['dhcp_leases'] = self._get_dhcp_leases()
         self.data['ip'] = self._get_interface_addresses()
         self.data['nameservers'] = self._get_nameservers()
@@ -107,6 +108,22 @@ class BaseCollector:
             ret[ifname] = info
 
         self._prev_time = now
+        return ret
+
+    # ── Link speeds ──────────────────────────────────────────────────────
+
+    def _get_link_speeds(self):
+        """Negotiated speed in Mb/s per emulated port (0/missing when unknown, e.g. PPPoE)."""
+        ret = {}
+        try:
+            stats = psutil.net_if_stats()
+        except Exception as e:
+            logger.debug('Failed to get interface stats: %s', e)
+            return ret
+        for port in self.ports:
+            st = stats.get(port['realif'])
+            if st is not None and getattr(st, 'speed', 0) and st.speed > 0:
+                ret[port['ifname']] = int(st.speed)
         return ret
 
     # ── MAC addresses ────────────────────────────────────────────────────

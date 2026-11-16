@@ -84,3 +84,55 @@ def test_lease_expiry_and_count(config):
 def test_extra_inform_overrides(config):
     config.set('gateway', 'extra_inform', '{"udapi_version": {"versionDetail": {"interfaces": 41}}}')
     assert _inform(config, 'UXG')['udapi_version']['versionDetail'] == {'interfaces': 41}
+
+
+def _dc_with(**extra):
+    dc = _dc()
+    dc.data['ifstat']['eth1'].update({'rx_bps': 1250, 'tx_bps': 250})
+    dc.data.update(extra)
+    return dc
+
+
+def _inform_dc(config, dc, device='UXG'):
+    config.set('gateway', 'device', device)
+    return json.loads(_create_complete_inform(config, dc))
+
+
+def test_port_table_live_rates(config):
+    wan = {e['name']: e for e in _inform_dc(config, _dc_with())['port_table']}['eth1']
+    # collector rates are bytes/s; *_bytes-r is bytes/s, *_rate is bits/s
+    assert (wan['rx_bytes-r'], wan['tx_bytes-r'], wan['bytes-r']) == (1250, 250, 1500)
+    assert (wan['rx_rate'], wan['tx_rate']) == (10000, 2000)
+
+
+def test_link_speed_and_media(config):
+    p = _inform_dc(config, _dc_with(link_speeds={'eth0': 2500}))
+    ports = {e['name']: e for e in p['port_table']}
+    assert (ports['eth0']['speed'], ports['eth0']['media']) == (2500, '2.5GE')
+    assert (ports['eth1']['speed'], ports['eth1']['media']) == (1000, 'GE')   # unknown -> 1000
+    assert {i['name']: i['speed'] for i in p['if_table']}['eth0'] == 2500
+    assert {n['name']: n['speed'] for n in p['network_table']}['eth0'] == '2500'
+
+
+def test_configured_speed_wins(config):
+    config.set('gateway', 'ports',
+               '[{"ifname":"eth0","name":"LAN","type":"lan","realif":"br-lan","speed":10000},'
+               '{"ifname":"eth1","name":"WAN","type":"wan","realif":"wan"}]')
+    ports = {e['name']: e for e in _inform_dc(config, _dc_with(link_speeds={'eth0': 2500}))['port_table']}
+    assert (ports['eth0']['speed'], ports['eth0']['media']) == (10000, '10GE')
+
+
+def test_uptime_stats_wan_online(config):
+    wan = _inform_dc(config, _dc_with(latency=3.5))['uptime_stats']['WAN']
+    assert wan['uptime'] == 100 and wan['availability'] == 100.0
+    assert wan['latency_average'] == 4 and wan['alerting_monitors'] == []
+
+
+def test_uptime_stats_wan_unreachable(config):
+    wan = _inform_dc(config, _dc_with(latency=0))['uptime_stats']['WAN']
+    assert wan['uptime'] == 100            # link has an IP: up
+    assert wan['availability'] == 0.0 and wan['alerting_monitors']
+
+
+def test_usg_has_no_uptime_stats(config):
+    assert 'uptime_stats' not in _inform_dc(config, _dc_with(latency=3.5), device='UGW3')

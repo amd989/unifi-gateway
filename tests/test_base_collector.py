@@ -357,3 +357,17 @@ def _fake_path(content):
     f.write(content)
     f.close()
     return f.name
+
+
+class TestLinkSpeeds:
+
+    def test_detected_speed_per_port(self, gateway_config, base_patches):
+        stats = {'enp0s3': MagicMock(speed=1000), 'enp0s8': MagicMock(speed=2500)}
+        with patch('psutil.net_if_stats', return_value=stats):
+            dc = create_base(gateway_config)
+        assert dc.data['link_speeds'] == {'eth0': 1000, 'eth1': 2500}
+
+    def test_unknown_speed_omitted(self, gateway_config, base_patches):
+        with patch('psutil.net_if_stats', return_value={'enp0s3': MagicMock(speed=0)}):
+            dc = create_base(gateway_config)
+        assert dc.data['link_speeds'] == {}
