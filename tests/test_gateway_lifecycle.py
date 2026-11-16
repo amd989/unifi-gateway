@@ -118,7 +118,7 @@ class TestSystemCfgDhcpSyncHook:
 
     def _gateway(self, tmp_path, module, openwrt=''):
         conf = tmp_path / 'gw.conf'
-        conf.write_text('[global]\npid_file = %s\n[provisioned]\n%s' % (tmp_path / 'test.pid', openwrt))
+        conf.write_text(f"[global]\npid_file = {tmp_path / 'test.pid'}\n[provisioned]\n{openwrt}")
         with patch.object(module, 'CONFIG_FILE', str(conf)), \
              patch.object(module, 'UNHANDLED_LOG', str(tmp_path / 'unhandled.json')):
             gw = module.UnifiGateway()

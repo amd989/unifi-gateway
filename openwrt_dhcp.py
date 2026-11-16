@@ -20,14 +20,13 @@ import ipaddress
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import shutil
+import ssl
 import subprocess
 import time
 import urllib.request
-import ssl
-
+from pathlib import Path
 
 LOGGER = logging.getLogger("unifi-gateway")
 MAC_RE = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$")
@@ -102,8 +101,7 @@ def _first_subnet(system_cfg, allowed_network):
                 candidates.append(subnet)
     if len(candidates) != 1:
         raise DhcpSyncError(
-            "expected exactly one DHCP subnet for %s, found %d"
-            % (allowed_network, len(candidates))
+            f"expected exactly one DHCP subnet for {allowed_network}, found {len(candidates)}"
         )
     return candidates[0]
 
@@ -156,8 +154,7 @@ def parse_udapi(system_cfg, allowed_network, *, interface_gateway=None, client_n
         if network == allowed_network:
             candidates.append((server, gateway))
     if len(candidates) != 1:
-        raise DhcpSyncError("expected exactly one udapi server for %s, found %d" %
-                            (allowed_network, len(candidates)))
+        raise DhcpSyncError(f"expected exactly one udapi server for {allowed_network}, found {len(candidates)}")
     server, gateway = candidates[0]
     if gateway != local.ip:
         raise DhcpSyncError("udapi gateway does not match existing OpenWrt interface")
@@ -251,7 +248,7 @@ def parse_system_cfg(raw_value, allowed_network_text, *, interface_gateway=None,
             lease_seconds = int(lease)
             if not 60 <= lease_seconds <= 31536000:
                 raise DhcpSyncError("DHCP lease duration is outside safe bounds")
-            pool["leasetime"] = "%ds" % lease_seconds
+            pool["leasetime"] = f"{lease_seconds}s"
 
     reservations = {}
     static_mappings = subnet.get("static-mapping", {}) or {}
@@ -466,7 +463,7 @@ class OpenWrtDhcpSync:
             with opener.open(login, timeout=5) as response:
                 if response.status != 200:
                     raise ValueError("controller login failed")
-            with opener.open(base + "/api/s/%s/rest/user" % site, timeout=5) as response:
+            with opener.open(base + f"/api/s/{site}/rest/user", timeout=5) as response:
                 payload = json.load(response)
             if payload.get("meta", {}).get("rc") != "ok" or not isinstance(payload.get("data"), list):
                 raise ValueError("controller client list unavailable")
@@ -479,7 +476,7 @@ class OpenWrtDhcpSync:
                 if mac and isinstance(name, str) and name.strip():
                     names[mac] = safe_hostname(name, "host-" + mac.replace(":", ""))
             return names
-        except Exception:
+        except Exception:  # noqa: BLE001 - name lookup is best-effort and must never fail the sync
             LOGGER.warning("UniFi client-name lookup unavailable; preserving fallback names")
             return {}
 
@@ -517,14 +514,14 @@ class OpenWrtDhcpSync:
         return ip if "/" in ip else f"{ip}/{mask}" if mask else ""
 
     def _set(self, section, option, value):
-        self._run(["uci", "-q", "set", "dhcp.%s.%s=%s" % (section, option, value)])
+        self._run(["uci", "-q", "set", f"dhcp.{section}.{option}={value}"])
 
     def _delete(self, section):
-        self._run(["uci", "-q", "delete", "dhcp.%s" % section])
+        self._run(["uci", "-q", "delete", f"dhcp.{section}"])
 
     def _snapshot(self):
         self.backup_dir.mkdir(parents=True, exist_ok=True)
-        path = self.backup_dir / ("dhcp.%d" % int(time.time()))
+        path = self.backup_dir / f"dhcp.{int(time.time())}"
         shutil.copy2(self.config_path, path)
         backups = sorted(self.backup_dir.glob("dhcp.*"), key=lambda item: item.stat().st_mtime)
         for old_path in backups[:-10]:
@@ -542,7 +539,7 @@ class OpenWrtDhcpSync:
             self._delete(section)
             return
         if kind == "upsert":
-            self._run(["uci", "-q", "set", "dhcp.%s=host" % section])
+            self._run(["uci", "-q", "set", f"dhcp.{section}=host"])
             self._set(section, "name", operation["name"])
             self._set(section, "mac", operation["mac"])
             self._set(section, "ip", operation["ip"])
@@ -606,7 +603,7 @@ class OpenWrtDhcpSync:
         change_count = len(operations) + len(pool_changes)
         if change_count > self.max_changes:
             raise DhcpSyncError(
-                "refusing %d DHCP changes (limit %d)" % (change_count, self.max_changes)
+                f"refusing {change_count} DHCP changes (limit {self.max_changes})"
             )
         if not change_count:
             return {

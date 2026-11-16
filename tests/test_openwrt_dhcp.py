@@ -2,8 +2,13 @@ import json
 import unittest
 import unittest.mock
 
-from openwrt_dhcp import (DhcpSyncError, OpenWrtDhcpSync, dry_run, parse_system_cfg,
-                         plan_reservations)
+from openwrt_dhcp import (
+    DhcpSyncError,
+    OpenWrtDhcpSync,
+    dry_run,
+    parse_system_cfg,
+    plan_reservations,
+)
 
 
 def payload(network="192.168.0.0/24", mappings=None):
