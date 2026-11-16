@@ -15,6 +15,7 @@ import urllib.error
 
 from collectors import create_collector
 from daemon import Daemon
+from openwrt_dhcp import DhcpSyncError, OpenWrtDhcpSync
 from unifi_protocol import (
     create_broadcast_message, create_inform, encode_inform, decode_inform,
 )
@@ -65,6 +66,7 @@ class UnifiGateway(Daemon):
 
         self.datacollector = None
         self._unhandled = {}
+        self.dhcp_sync = OpenWrtDhcpSync(self.config)
         Daemon.__init__(
             self, pidfile=self.config.get('global', 'pid_file'), **kwargs
         )
@@ -190,9 +192,27 @@ class UnifiGateway(Daemon):
             HANDLED_SETPARAM_KEYS = {
                 '_type', 'server_time_in_utc', 'blocked_sta', 'mgmt_cfg',
             }
+            if self.dhcp_sync.enabled:
+                HANDLED_SETPARAM_KEYS = HANDLED_SETPARAM_KEYS | {'system_cfg'}
             for key, value in response.items():
                 if key == 'mgmt_cfg':
                     self._parse_mgmt_cfg(value)
+                elif key == 'system_cfg' and self.dhcp_sync.enabled:
+                    # [openwrt] dhcp_sync_enabled: apply the controller's DHCP pool and reservations
+                    try:
+                        result = self.dhcp_sync.apply(value)
+                        if result.get('changed'):
+                            logger.info(
+                                'Applied UniFi DHCP configuration: %d reservations, '
+                                '%d reservation operations, pool changes=%s',
+                                result.get('reservation_count', 0),
+                                result.get('operations', 0),
+                                ','.join(result.get('pool_changes', [])) or 'none',
+                            )
+                    except DhcpSyncError as error:
+                        logger.error('Rejected UniFi DHCP configuration: %s', error)
+                    except Exception:
+                        logger.exception('Failed to apply UniFi DHCP configuration')
                 if key not in ('_type', 'server_time_in_utc', 'blocked_sta'):
                     self.config.set('provisioned', key, str(value))
                 if key not in HANDLED_SETPARAM_KEYS:

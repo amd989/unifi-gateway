@@ -111,3 +111,32 @@ class TestRunInitializesCollector:
             gw.run()
 
         mock_init.assert_called_once()
+
+
+class TestSystemCfgDhcpSyncHook:
+    """setparam system_cfg goes to the OpenWrt DHCP sync only when [openwrt] enables it."""
+
+    def _gateway(self, tmp_path, module, openwrt=''):
+        conf = tmp_path / 'gw.conf'
+        conf.write_text('[global]\npid_file = %s\n[provisioned]\n%s' % (tmp_path / 'test.pid', openwrt))
+        with patch.object(module, 'CONFIG_FILE', str(conf)), \
+             patch.object(module, 'UNHANDLED_LOG', str(tmp_path / 'unhandled.json')):
+            gw = module.UnifiGateway()
+        gw._save_config = MagicMock()
+        gw._record_unhandled = MagicMock()
+        return gw
+
+    def test_disabled_sync_records_unhandled(self, tmp_path, _mock_daemon):
+        gw = self._gateway(tmp_path, _mock_daemon)
+        gw.dhcp_sync.apply = MagicMock()
+        gw._handle_response({'_type': 'setparam', 'system_cfg': '{"udapi": {}}'})
+        gw.dhcp_sync.apply.assert_not_called()
+        assert gw._record_unhandled.call_args[0][1] == 'system_cfg'
+
+    def test_enabled_sync_applies_and_errors_are_contained(self, tmp_path, _mock_daemon):
+        gw = self._gateway(tmp_path, _mock_daemon, '[openwrt]\ndhcp_sync_enabled = true\n')
+        gw.dhcp_sync.apply = MagicMock(side_effect=_mock_daemon.DhcpSyncError('bad'))
+        gw._handle_response({'_type': 'setparam', 'system_cfg': '{"udapi": {}}'})
+        gw.dhcp_sync.apply.assert_called_once_with('{"udapi": {}}')
+        gw._record_unhandled.assert_not_called()
+        assert gw.config.get('provisioned', 'system_cfg') == '{"udapi": {}}'
