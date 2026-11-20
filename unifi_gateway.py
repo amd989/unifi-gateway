@@ -9,6 +9,8 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -58,6 +60,8 @@ class UnifiGateway(Daemon):
     def __init__(self, **kwargs):
         self.interval = 10
         self.running = True
+        # set by the signal handler; waits on it end immediately (time.sleep would run to the end)
+        self._stop = threading.Event()
         self.config = configparser.RawConfigParser()
         self.config.read(CONFIG_FILE)
 
@@ -86,8 +90,8 @@ class UnifiGateway(Daemon):
 
     def _save_unhandled(self):
         try:
-            with open(UNHANDLED_LOG, 'w') as f:
-                json.dump(self._unhandled, f, indent=2, sort_keys=True)
+            _atomic_write(UNHANDLED_LOG,
+                          lambda f: json.dump(self._unhandled, f, indent=2, sort_keys=True))
         except (IOError, OSError) as e:
             logger.warning('Failed to write unhandled log: %s', e)
 
@@ -154,7 +158,7 @@ class UnifiGateway(Daemon):
                 )
                 return
             self._send_broadcast(broadcast_index)
-            time.sleep(self.interval)
+            self._stop.wait(self.interval)
             broadcast_index += 1
 
         logger.info(
@@ -174,13 +178,14 @@ class UnifiGateway(Daemon):
             except Exception as e:
                 logger.error('Error in inform loop: %s', e, exc_info=True)
                 self.interval = min(self.interval * 2, 60)
-            time.sleep(self.interval)
+            self._stop.wait(self.interval)
 
         logger.info('Shutting down gracefully')
 
     def _handle_signal(self, signum, frame):
         logger.info('Received signal %d, shutting down', signum)
         self.running = False
+        self._stop.set()
 
     def _handle_response(self, response):
         resp_type = response.get('_type', '')
@@ -424,8 +429,31 @@ class UnifiGateway(Daemon):
         return decode_inform(self.config, response.read())
 
     def _save_config(self):
-        with open(CONFIG_FILE, 'w') as config_file:
-            self.config.write(config_file)
+        # Atomic: a kill mid-write must never leave a truncated config (it holds the adoption key)
+        _atomic_write(CONFIG_FILE, self.config.write)
+
+
+def _atomic_write(path, write):
+    """Write a file via a temp file in the same directory + fsync + os.replace, keeping its permissions."""
+    directory = os.path.dirname(os.path.abspath(path))
+    try:
+        mode = os.stat(path).st_mode & 0o7777
+    except FileNotFoundError:
+        mode = 0o600
+    fd, tmp = tempfile.mkstemp(prefix='.' + os.path.basename(path) + '.', dir=directory)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def main():

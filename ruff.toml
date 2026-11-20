@@ -1,0 +1,6 @@
+# Explicit rule set, so a new ruff release can't change what CI enforces.
+extend-exclude = ["poc", "controller"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E401", "E402"]

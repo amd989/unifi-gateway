@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Tests for UnifiGateway lifecycle — stop/restart must not require [gateway]."""
-import importlib
 import sys
 from unittest.mock import patch, MagicMock
 
@@ -15,7 +14,7 @@ def _mock_daemon():
             self.pidfile = pidfile
 
         def stop(self):
-            import os, time
+            import os
             from signal import SIGTERM
             try:
                 with open(self.pidfile, 'r') as pf:
@@ -140,3 +139,56 @@ class TestSystemCfgDhcpSyncHook:
         gw.dhcp_sync.apply.assert_called_once_with('{"udapi": {}}')
         gw._record_unhandled.assert_not_called()
         assert gw.config.get('provisioned', 'system_cfg') == '{"udapi": {}}'
+
+
+class TestCleanShutdown:
+    """A stop signal must end run() at once (procd SIGKILLs after its term timeout)."""
+
+    def test_signal_interrupts_inform_wait(self, tmp_path, _mock_daemon):
+        import time
+        conf = tmp_path / 'gw.conf'
+        conf.write_text('[global]\npid_file = %s\n[gateway]\nis_adopted = True\n[provisioned]\n'
+                        % (tmp_path / 'test.pid'))
+        with patch.object(_mock_daemon, 'CONFIG_FILE', str(conf)), \
+             patch.object(_mock_daemon, 'UNHANDLED_LOG', str(tmp_path / 'unhandled.json')):
+            gw = _mock_daemon.UnifiGateway()
+            gw.interval = 30
+
+            def inform_then_stop(data):
+                gw._handle_signal(15, None)          # SIGTERM arrives during the cycle
+                return {'_type': 'noop'}
+
+            with patch.object(_mock_daemon, 'create_collector', return_value=MagicMock()), \
+                 patch.object(_mock_daemon, 'create_inform', return_value=b''), \
+                 patch('signal.signal'), \
+                 patch.object(gw, '_send_inform', side_effect=inform_then_stop):
+                start = time.monotonic()
+                gw.run()
+                elapsed = time.monotonic() - start
+        assert elapsed < 2, f'run() kept sleeping after the stop signal ({elapsed:.1f}s)'
+
+
+class TestAtomicWrite:
+
+    def test_replaces_and_keeps_mode(self, tmp_path, _mock_daemon):
+        import os
+        target = tmp_path / 'gw.conf'
+        target.write_text('old')
+        os.chmod(target, 0o600)
+        _mock_daemon._atomic_write(str(target), lambda f: f.write('new'))
+        assert target.read_text() == 'new'
+        assert os.stat(target).st_mode & 0o777 == 0o600
+        assert [p.name for p in tmp_path.iterdir()] == ['gw.conf']   # no temp file left
+
+    def test_failure_keeps_old_file(self, tmp_path, _mock_daemon):
+        target = tmp_path / 'gw.conf'
+        target.write_text('old')
+
+        def broken(f):
+            f.write('half')
+            raise RuntimeError('killed mid-write')
+
+        with pytest.raises(RuntimeError):
+            _mock_daemon._atomic_write(str(target), broken)
+        assert target.read_text() == 'old'
+        assert [p.name for p in tmp_path.iterdir()] == ['gw.conf']
