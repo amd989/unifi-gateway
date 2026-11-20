@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Tests for UnifiGateway lifecycle — stop/restart must not require [gateway]."""
-import importlib
 import sys
 from unittest.mock import patch, MagicMock
 
@@ -15,7 +14,7 @@ def _mock_daemon():
             self.pidfile = pidfile
 
         def stop(self):
-            import os, time
+            import os
             from signal import SIGTERM
             try:
                 with open(self.pidfile, 'r') as pf:

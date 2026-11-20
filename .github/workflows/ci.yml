@@ -18,10 +18,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install ruff
+      - run: pip install ruff==0.17.6
 
       - name: Lint
-        run: ruff check --exclude poc/ --exclude controller/ --ignore E401,E402 .
+        run: ruff check .
 
   smoke-test:
     runs-on: ubuntu-latest
