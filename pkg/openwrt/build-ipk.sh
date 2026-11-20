@@ -24,7 +24,7 @@ cp "$PKG_DIR/unifi-gateway.wrapper" "$WORK/data/usr/bin/unifi-gateway"
 chmod 755 "$WORK/data/usr/bin/unifi-gateway"
 
 # Python source
-for f in unifi_gateway.py unifi_protocol.py tools.py tlv.py daemon.py datacollector.py; do
+for f in unifi_gateway.py unifi_protocol.py tools.py tlv.py daemon.py datacollector.py openwrt_dhcp.py; do
     cp "$ROOT_DIR/$f" "$WORK/data/usr/lib/unifi-gateway/$f"
 done
 for f in __init__.py base.py linux.py freebsd.py openwrt.py opnsense.py pfsense.py; do

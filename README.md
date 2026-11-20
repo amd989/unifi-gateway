@@ -272,6 +272,38 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 | `speedtest_file` | `./speedtest.json` | Path to speedtest results JSON |
 | `platform` | `UNIFI-GW` | Platform string in discovery broadcasts |
 
+#### `[openwrt]`: DHCP from the controller (optional, off by default)
+
+On OpenWrt, the daemon can apply the DHCP settings you make in the UniFi controller to `/etc/config/dhcp`:
+the pool (start, size, lease time) and IPv4 reservations (fixed IPs) of **one** subnet. It reads the controller's
+`system_cfg` in either format: the USG tree, or the udapi format a UXG (Gateway Lite) receives. Everything else the
+controller sends (firewall, VLANs, other networks, DHCP options) is ignored.
+
+| Key | Default | Description |
+|---|---|---|
+| `dhcp_sync_enabled` | `False` | Turn the sync on |
+| `dhcp_sync_mode` | `apply` | `apply`, or `dry-run` to only log the planned changes |
+| `dhcp_sync_network` | *(required)* | The one subnet that may be changed, e.g. `192.168.0.0/24`. It must match OpenWrt's `network.lan` address |
+| `dhcp_sync_max_changes` | `128` | Refuse a run that would change more than this |
+| `dhcp_config_path` | `/etc/config/dhcp` | UCI DHCP file |
+| `dhcp_backup_dir` | `/etc/unifi-gateway/backups` | Copies of the DHCP file before each change (last 10 kept) |
+| `dhcp_state_file` | `/etc/unifi-gateway/dhcp-sync-state.json` | Summary of the last applied run |
+| `dhcp_controller_url` | *(none)* | e.g. `https://192.168.1.10:8443`. With the credentials file, reservation names come from the controller's client list |
+| `dhcp_controller_credentials_file` | *(none)* | JSON `{"username": ..., "password": ...}` for a controller account; keep it `chmod 600` |
+| `dhcp_controller_site` | `default` | Controller site name |
+| `dhcp_controller_ca_file` | *(none)* | CA bundle to verify the controller's certificate. Without it, the certificate isn't checked (UniFi uses a self-signed one) |
+
+How it stays safe:
+- **Ownership:** reservations it creates or takes over are marked `unifi_managed '1'` and `unifi_mac`. Only those are
+  changed or deleted.
+- **Hand-made entries:** these are never touched. A reservation from the controller that conflicts with one aborts
+  the run.
+- **Rollback:** if `dnsmasq` doesn't accept the result, the previous file is restored.
+- **Names:** first the controller's local DNS record, then the client's name in the controller, then `host-<mac>`.
+  An existing reservation keeps its current name.
+- **Placeholder:** the controller's built-in placeholder lease (`00:00:00:00:00:00` → `192.168.1.20`) is skipped.
+- **Start with a test run:** begin with `dhcp_sync_mode = dry-run` and read the planned changes in the log.
+
 #### `[provisioned]`
 
 Populated automatically by the controller after adoption. Do not edit manually.
