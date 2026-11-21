@@ -288,10 +288,11 @@ controller sends (firewall, VLANs, other networks, DHCP options) is ignored.
 | `dhcp_config_path` | `/etc/config/dhcp` | UCI DHCP file |
 | `dhcp_backup_dir` | `/etc/unifi-gateway/backups` | Copies of the DHCP file before each change (last 10 kept) |
 | `dhcp_state_file` | `/etc/unifi-gateway/dhcp-sync-state.json` | Summary of the last applied run |
-| `dhcp_controller_url` | *(none)* | e.g. `https://192.168.1.10:8443`. With the credentials file, reservation names come from the controller's client list |
+| `dhcp_controller_url` | *(none)* | e.g. `https://192.168.1.10:8443` (must be `https://`). With the credentials file, reservation names come from the controller's client list |
 | `dhcp_controller_credentials_file` | *(none)* | JSON `{"username": ..., "password": ...}` for a controller account; keep it `chmod 600` |
 | `dhcp_controller_site` | `default` | Controller site name |
-| `dhcp_controller_ca_file` | *(none)* | CA bundle to verify the controller's certificate. Without it, the certificate isn't checked (UniFi uses a self-signed one) |
+| `dhcp_controller_cert_sha256` | *(none)* | SHA-256 fingerprint of the controller's certificate (hex, colons optional). Use this for the usual self-signed certificate |
+| `dhcp_controller_ca_file` | *(none)* | CA bundle to verify the controller's certificate. Without this and without a fingerprint, the system CAs are used |
 
 How it stays safe:
 - **Ownership:** reservations it creates or takes over are marked `unifi_managed '1'` and `unifi_mac`. Only those are
@@ -303,6 +304,21 @@ How it stays safe:
   An existing reservation keeps its current name.
 - **Placeholder:** the controller's built-in placeholder lease (`00:00:00:00:00:00` → `192.168.1.20`) is skipped.
 - **Start with a test run:** begin with `dhcp_sync_mode = dry-run` and read the planned changes in the log.
+
+**Controller client names (optional).** The controller's certificate is always checked before the credentials are
+sent. A standalone controller usually has a self-signed certificate, so pin it. Get its fingerprint with:
+
+```bash
+openssl s_client -connect 192.168.1.10:8443 </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256
+```
+
+and set `dhcp_controller_cert_sha256` to the value after `Fingerprint=`. When the controller gets a new
+certificate, update the fingerprint. Until then the lookup logs a warning and new reservations are named
+`host-<mac>`; existing ones keep their names.
+
+The lookup uses the standalone Network application's API (`/api/login`, `/api/s/<site>/...`). UniFi OS consoles
+(UDM, Cloud Key Gen2+, UniFi OS Server) use other paths, so there the lookup fails and names fall back to the DNS
+records and `host-<mac>`.
 
 #### `[provisioned]`
 

@@ -17,7 +17,7 @@ import urllib.error
 
 from collectors import create_collector
 from daemon import Daemon
-from openwrt_dhcp import DhcpSyncError, OpenWrtDhcpSync
+from provisioners.openwrt_dhcp import DhcpSyncError, OpenWrtDhcpSync
 from unifi_protocol import (
     create_broadcast_message, create_inform, encode_inform, decode_inform,
 )

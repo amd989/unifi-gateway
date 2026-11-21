@@ -15,6 +15,7 @@ previous file.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import http.cookiejar
 import ipaddress
 import json
@@ -106,6 +107,30 @@ def _first_subnet(system_cfg, allowed_network):
     return candidates[0]
 
 
+def _check_interface(interface_gateway, allowed_network):
+    """The existing OpenWrt LAN interface (network.lan) must be the allowed subnet."""
+    try:
+        local = ipaddress.ip_interface(interface_gateway)
+    except (ValueError, TypeError) as error:
+        raise DhcpSyncError("existing OpenWrt interface CIDR is required") from error
+    if local.network != allowed_network:
+        raise DhcpSyncError("OpenWrt interface does not match allowed network")
+    return local
+
+
+def _check_pool(start, stop, allowed_network):
+    """A pool lies inside the subnet and never starts or ends on its network or broadcast address."""
+    reserved = (allowed_network.network_address, allowed_network.broadcast_address)
+    if (start not in allowed_network or stop not in allowed_network or start > stop
+            or start in reserved or stop in reserved):
+        raise DhcpSyncError("DHCP pool is outside safe bounds for the allowed LAN subnet")
+
+
+def _check_lease_seconds(seconds):
+    if not 60 <= seconds <= 31536000:
+        raise DhcpSyncError("DHCP lease duration is outside safe bounds")
+
+
 def _udapi_payload(system_cfg):
     """Accept an inform system_cfg envelope or a captured bare udapi document."""
     if "udapi" in system_cfg:
@@ -132,12 +157,7 @@ def parse_udapi(system_cfg, allowed_network, *, interface_gateway=None, client_n
     data = _udapi_payload(system_cfg)
     if data is None:
         raise DhcpSyncError("system_cfg has no udapi DHCP servers")
-    try:
-        local = ipaddress.ip_interface(interface_gateway)
-    except (ValueError, TypeError) as error:
-        raise DhcpSyncError("existing OpenWrt interface CIDR is required for udapi") from error
-    if local.network != allowed_network:
-        raise DhcpSyncError("OpenWrt interface does not match allowed network")
+    local = _check_interface(interface_gateway, allowed_network)
     servers = data.get("services", {}).get("dhcpServers")
     if not isinstance(servers, list):
         raise DhcpSyncError("udapi dhcpServers must be a list")
@@ -166,10 +186,8 @@ def parse_udapi(system_cfg, allowed_network, *, interface_gateway=None, client_n
         seconds = int(server["leaseTime"])
     except (KeyError, ValueError, TypeError) as error:
         raise DhcpSyncError("invalid udapi DHCP pool") from error
-    if (start not in allowed_network or stop not in allowed_network or start > stop or
-            start in (allowed_network.network_address, allowed_network.broadcast_address) or
-            stop == allowed_network.broadcast_address or not 60 <= seconds <= 31536000):
-        raise DhcpSyncError("udapi DHCP pool is outside safe bounds")
+    _check_pool(start, stop, allowed_network)
+    _check_lease_seconds(seconds)
     pool = {"start": int(start) - int(allowed_network.network_address),
             "limit": int(stop) - int(start) + 1, "leasetime": f"{seconds}s"}
 
@@ -215,6 +233,11 @@ def parse_udapi(system_cfg, allowed_network, *, interface_gateway=None, client_n
 
 
 def parse_system_cfg(raw_value, allowed_network_text, *, interface_gateway=None, client_names=None):
+    """Desired pool and reservations for the allowed subnet, from either payload format.
+
+    interface_gateway is OpenWrt's network.lan address (CIDR). The sync always passes it, and both
+    formats then require the allowed subnet to be that interface's subnet. udapi requires it.
+    """
     try:
         system_cfg = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
     except json.JSONDecodeError as error:
@@ -226,6 +249,8 @@ def parse_system_cfg(raw_value, allowed_network_text, *, interface_gateway=None,
     if _udapi_payload(system_cfg) is not None:
         return parse_udapi(system_cfg, allowed_network, interface_gateway=interface_gateway,
                            client_names=client_names)
+    if interface_gateway is not None:
+        _check_interface(interface_gateway, allowed_network)
     subnet = _first_subnet(system_cfg, allowed_network)
 
     pool = None
@@ -234,20 +259,23 @@ def parse_system_cfg(raw_value, allowed_network_text, *, interface_gateway=None,
         if len(starts) != 1:
             raise DhcpSyncError("multiple DHCP pools are not supported")
         start_text, pool_data = next(iter(starts.items()))
-        stop_text = pool_data.get("stop")
-        start = ipaddress.ip_address(start_text)
-        stop = ipaddress.ip_address(stop_text)
-        if start not in allowed_network or stop not in allowed_network or start > stop:
-            raise DhcpSyncError("DHCP pool is outside the allowed LAN subnet")
+        try:
+            start = ipaddress.IPv4Address(start_text)
+            stop = ipaddress.IPv4Address(pool_data.get("stop"))
+        except (AttributeError, ValueError, TypeError) as error:
+            raise DhcpSyncError("invalid DHCP pool start or stop address") from error
+        _check_pool(start, stop, allowed_network)
         pool = {
             "start": int(start) - int(allowed_network.network_address),
             "limit": int(stop) - int(start) + 1,
         }
         lease = subnet.get("lease")
         if lease is not None:
-            lease_seconds = int(lease)
-            if not 60 <= lease_seconds <= 31536000:
-                raise DhcpSyncError("DHCP lease duration is outside safe bounds")
+            try:
+                lease_seconds = int(lease)
+            except (ValueError, TypeError) as error:
+                raise DhcpSyncError("invalid DHCP lease duration") from error
+            _check_lease_seconds(lease_seconds)
             pool["leasetime"] = f"{lease_seconds}s"
 
     reservations = {}
@@ -261,8 +289,8 @@ def parse_system_cfg(raw_value, allowed_network_text, *, interface_gateway=None,
         if not mac:
             raise DhcpSyncError("static mapping has an invalid MAC address")
         try:
-            ip = ipaddress.ip_address(mapping.get("ip-address"))
-        except ValueError as error:
+            ip = ipaddress.IPv4Address(mapping.get("ip-address"))
+        except (ValueError, TypeError) as error:
             raise DhcpSyncError("static mapping has an invalid IP address") from error
         if ip not in allowed_network:
             raise DhcpSyncError("static mapping is outside the allowed LAN subnet")
@@ -410,6 +438,45 @@ def dry_run(raw_system_cfg, network, snapshot, *, client_names=None):
             "changes": len(pool_changes) + len(operations), "applied": False}
 
 
+def normalize_fingerprint(value):
+    """A SHA-256 certificate fingerprint as 64 lowercase hex digits (colons optional), else None."""
+    value = str(value or "").strip().lower().replace(":", "")
+    return value if re.fullmatch(r"[0-9a-f]{64}", value) else None
+
+
+def _pinned_https_handler(fingerprint):
+    """An HTTPS handler that accepts exactly one certificate, by its SHA-256 fingerprint.
+
+    For controllers with a self-signed certificate. The fingerprint is checked right after the TLS
+    handshake, before any request (and so before any credentials) is sent.
+    """
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE  # replaced by the fingerprint check below
+
+    class PinnedHTTPSConnection(http.client.HTTPSConnection):
+        def connect(self):
+            super().connect()
+            der = self.sock.getpeercert(binary_form=True)
+            if not der or hashlib.sha256(der).hexdigest() != fingerprint:
+                self.close()
+                raise ssl.SSLError("controller certificate does not match dhcp_controller_cert_sha256")
+
+    class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, request):
+            return self.do_open(PinnedHTTPSConnection, request, context=context)
+
+    return PinnedHTTPSHandler(context=context)
+
+
+def _uci_quote(value):
+    """Quote a value for `uci batch`. Values are validated before this; refuse anything uci could misread."""
+    value = str(value)
+    if any(char in value for char in "'\n\r\\"):
+        raise DhcpSyncError("refusing a UCI value with quotes, backslashes or newlines")
+    return f"'{value}'"
+
+
 class OpenWrtDhcpSync:
     def __init__(self, config):
         self.config = config
@@ -439,6 +506,10 @@ class OpenWrtDhcpSync:
         Needs dhcp_controller_url and dhcp_controller_credentials_file (JSON with
         "username"/"password", readable only by root). Skipped when either is unset;
         any failure only logs a warning and never fails the sync. Never logs secrets.
+
+        The controller's certificate is always verified before the credentials are sent:
+        pinned by dhcp_controller_cert_sha256 (for the usual self-signed certificate), or
+        against dhcp_controller_ca_file, or against the system CAs.
         """
         credential_path = self.config.get("openwrt", "dhcp_controller_credentials_file", fallback="")
         base = self.config.get("openwrt", "dhcp_controller_url", fallback="").rstrip("/")
@@ -446,15 +517,25 @@ class OpenWrtDhcpSync:
             return {}
         site = self.config.get("openwrt", "dhcp_controller_site", fallback="default")
         ca_file = self.config.get("openwrt", "dhcp_controller_ca_file", fallback="")
+        pin_text = self.config.get("openwrt", "dhcp_controller_cert_sha256", fallback="")
+        if not base.lower().startswith("https://"):
+            LOGGER.warning("UniFi client-name lookup skipped: dhcp_controller_url must be https://")
+            return {}
+        fingerprint = normalize_fingerprint(pin_text)
+        if pin_text and not fingerprint:
+            LOGGER.warning("UniFi client-name lookup skipped: dhcp_controller_cert_sha256 is not a SHA-256 fingerprint")
+            return {}
         try:
             with open(credential_path) as stream:
                 credentials = json.load(stream)
-            # UniFi controllers usually have a self-signed certificate; verify only when a CA file is given
-            context = ssl.create_default_context(cafile=ca_file) if ca_file else ssl._create_unverified_context()
+            if fingerprint:
+                https_handler = _pinned_https_handler(fingerprint)
+            else:
+                https_handler = urllib.request.HTTPSHandler(
+                    context=ssl.create_default_context(cafile=ca_file or None))
             cookies = http.cookiejar.CookieJar()
             opener = urllib.request.build_opener(
-                urllib.request.HTTPCookieProcessor(cookies),
-                urllib.request.HTTPSHandler(context=context))
+                urllib.request.HTTPCookieProcessor(cookies), https_handler)
             body = json.dumps({"username": credentials["username"],
                                "password": credentials["password"]}).encode()
             login = urllib.request.Request(
@@ -476,8 +557,12 @@ class OpenWrtDhcpSync:
                 if mac and isinstance(name, str) and name.strip():
                     names[mac] = safe_hostname(name, "host-" + mac.replace(":", ""))
             return names
-        except Exception:  # noqa: BLE001 - name lookup is best-effort and must never fail the sync
-            LOGGER.warning("UniFi client-name lookup unavailable; preserving fallback names")
+        except Exception as error:  # noqa: BLE001 - name lookup is best-effort and must never fail the sync
+            if isinstance(getattr(error, "reason", error), ssl.SSLError):
+                LOGGER.warning("UniFi client-name lookup skipped: controller certificate not verified "
+                               "(set dhcp_controller_cert_sha256 or dhcp_controller_ca_file)")
+            else:
+                LOGGER.warning("UniFi client-name lookup unavailable; preserving fallback names")
             return {}
 
     def _run(self, arguments, *, input_text=None, check=True):
@@ -513,11 +598,6 @@ class OpenWrtDhcpSync:
             raise DhcpSyncError("OpenWrt LAN has no static IPv4 address")
         return ip if "/" in ip else f"{ip}/{mask}" if mask else ""
 
-    def _set(self, section, option, value):
-        self._run(["uci", "-q", "set", f"dhcp.{section}.{option}={value}"])
-
-    def _delete(self, section):
-        self._run(["uci", "-q", "delete", f"dhcp.{section}"])
 
     def _snapshot(self):
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -532,31 +612,41 @@ class OpenWrtDhcpSync:
         shutil.copy2(path, self.config_path)
         self._run(["/etc/init.d/dnsmasq", "restart"], check=False)
 
-    def _apply_operation(self, operation):
-        kind = operation["op"]
-        section = operation["section"]
-        if kind in ("delete", "domain-delete"):
-            self._delete(section)
-            return
-        if kind == "upsert":
-            self._run(["uci", "-q", "set", f"dhcp.{section}=host"])
-            self._set(section, "name", operation["name"])
-            self._set(section, "mac", operation["mac"])
-            self._set(section, "ip", operation["ip"])
-            self._set(section, "dns", "1")
-            self._set(section, "unifi_managed", "1")
-            self._set(section, "unifi_mac", operation["mac"])
-            return
-        if kind == "domain-upsert":
-            self._set(section, "ip", operation["ip"])
-            self._set(section, "unifi_managed", "1")
-            self._set(section, "unifi_mac", operation["mac"])
-            current = self._uci_section(section)
-            old_name = str(current.get("name", ""))
-            suffix = ".lan" if old_name.endswith(".lan") else ""
-            self._set(section, "name", operation["name"] + suffix)
-            return
-        raise DhcpSyncError("unknown reconciliation operation")
+    @staticmethod
+    def _batch_lines(operations, pool_changes, domains):
+        """`uci batch` commands for the planned operations and pool changes (nothing is run here)."""
+        lines = []
+
+        def set_option(section, option, value):
+            lines.append(f"set dhcp.{section}.{option}={_uci_quote(value)}")
+
+        for operation in operations:
+            kind = operation["op"]
+            section = operation["section"]
+            if not re.fullmatch(r"[A-Za-z0-9_]+", section):
+                raise DhcpSyncError("refusing an unexpected UCI section name")
+            if kind in ("delete", "domain-delete"):
+                lines.append(f"delete dhcp.{section}")
+            elif kind == "upsert":
+                lines.append(f"set dhcp.{section}=host")
+                set_option(section, "name", operation["name"])
+                set_option(section, "mac", operation["mac"])
+                set_option(section, "ip", operation["ip"])
+                set_option(section, "dns", "1")
+                set_option(section, "unifi_managed", "1")
+                set_option(section, "unifi_mac", operation["mac"])
+            elif kind == "domain-upsert":
+                old_name = str(domains.get(section, {}).get("name", ""))
+                suffix = ".lan" if old_name.endswith(".lan") else ""
+                set_option(section, "ip", operation["ip"])
+                set_option(section, "unifi_managed", "1")
+                set_option(section, "unifi_mac", operation["mac"])
+                set_option(section, "name", operation["name"] + suffix)
+            else:
+                raise DhcpSyncError("unknown reconciliation operation")
+        for key, value in pool_changes.items():
+            set_option("lan", key, value)
+        return lines
 
     def apply(self, raw_system_cfg):
         if not self.enabled:
@@ -584,9 +674,10 @@ class OpenWrtDhcpSync:
             LOGGER.info("UniFi DHCP DRY RUN (nothing applied): %s", json.dumps(plan, sort_keys=True))
             return {"enabled": True, "changed": False, "dry_run": True, "plan": plan}
         is_udapi = isinstance(envelope, dict) and _udapi_payload(envelope) is not None
+        # Both formats are checked against network.lan before anything is written
         desired = parse_system_cfg(
             raw_system_cfg, self.network,
-            interface_gateway=self._network_lan_cidr() if is_udapi else None,
+            interface_gateway=self._network_lan_cidr(),
             client_names=self._controller_names() if is_udapi else None,
         )
         hosts = self._uci_values("host")
@@ -611,12 +702,14 @@ class OpenWrtDhcpSync:
                 "reservations": len(desired["reservations"]),
             }
 
+        # Build every command first, so a refused value changes nothing
+        batch = "\n".join(self._batch_lines(operations, pool_changes, domains)) + "\n"
         backup_path = self._snapshot()
         try:
-            for operation in operations:
-                self._apply_operation(operation)
-            for key, value in pool_changes.items():
-                self._set("lan", key, value)
+            # One uci process for all changes. uci batch may report a failed line only on stderr
+            result = self._run(["uci", "batch"], input_text=batch)
+            if result.stderr.strip():
+                raise DhcpSyncError("uci batch failed: " + result.stderr.strip().splitlines()[0])
             self._run(["uci", "commit", "dhcp"])
             reload_result = self._run(["/etc/init.d/dnsmasq", "reload"], check=False)
             running_result = self._run(["/etc/init.d/dnsmasq", "running"], check=False)
