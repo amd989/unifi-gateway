@@ -283,9 +283,32 @@ def _create_complete_inform(config, dc):
         payload['uptime_stats'] = _build_uptime_stats(config, dc, wan_if)
 
     # Optional raw JSON merged into the inform last (testing / overriding fields)
-    if config.has_option('gateway', 'extra_inform'):
-        payload.update(json.loads(config.get('gateway', 'extra_inform')))
+    payload.update(extra_inform(config))
     return json.dumps(payload)
+
+
+_extra_inform_cache = {}
+
+
+def extra_inform(config):
+    """The [gateway] extra_inform object, or {} when unset or invalid.
+
+    Parsed once per distinct value. An invalid value is logged once and skipped, so a typo can't make
+    every inform fail (which takes the gateway offline in the controller).
+    """
+    if not config.has_option('gateway', 'extra_inform'):
+        return {}
+    raw = config.get('gateway', 'extra_inform')
+    if raw not in _extra_inform_cache:
+        try:
+            value = json.loads(raw)
+            if not isinstance(value, dict):
+                raise ValueError('not a JSON object')
+        except ValueError as e:
+            logger.error('Ignoring [gateway] extra_inform: %s', e)
+            value = {}
+        _extra_inform_cache[raw] = value
+    return _extra_inform_cache[raw]
 
 
 def _build_port_table(dc, ports):
@@ -306,7 +329,8 @@ def _build_port_table(dc, ports):
             'up': ifname in dc.data.get('ip', {}) or bool(st),
             'enable': True,
             'is_uplink': port['type'].lower() == 'wan',
-            'mac': port.get('mac') or dc.data.get('macs', {}).get(ifname, '00:00:00:00:00:00'),
+            # the collector's MAC: already normalized, and a port's configured "mac" wins there
+            'mac': dc.data.get('macs', {}).get(ifname, '00:00:00:00:00:00'),
         }
         for k in ('rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets', 'rx_errors', 'tx_errors',
                   'rx_dropped', 'tx_dropped', 'rx_multicast'):

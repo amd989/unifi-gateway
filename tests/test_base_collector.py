@@ -217,7 +217,7 @@ class TestMACAddresses:
         gateway_config.set('gateway', 'ports',
                            '[{"ifname":"eth0","name":"WAN","type":"wan","realif":"enp0s3","mac":"not-a-mac"},'
                            '{"ifname":"eth1","name":"LAN","type":"lan","realif":"enp0s8"}]')
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match='eth0'):
             create_base(gateway_config)
 
 

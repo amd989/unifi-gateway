@@ -85,6 +85,26 @@ def test_extra_inform_overrides(config):
     assert _inform(config, 'UXG')['udapi_version']['versionDetail'] == {'interfaces': 41}
 
 
+@pytest.mark.parametrize('raw', ['{"udapi_version": ', '[1, 2]'])
+def test_extra_inform_invalid_is_skipped(config, raw, caplog):
+    config.set('gateway', 'extra_inform', raw)
+    p = _inform(config, 'UXG')  # still builds an inform
+    assert p['udapi_version']['versionDetail']['interfaces'] == 40
+    assert 'extra_inform' in caplog.text
+
+
+def test_port_table_mac_is_the_collectors(config):
+    """port_table uses the collector's normalized MAC, not the raw configured one."""
+    config.set('gateway', 'ports',
+               '[{"ifname":"eth0","name":"LAN","type":"lan","realif":"br-lan"},'
+               '{"ifname":"eth1","name":"WAN","type":"wan","realif":"pppoe-wan","mac":"1A-0E-E3-DE-26-90"}]')
+    dc = _dc()
+    dc.data['macs']['eth1'] = '1a:0e:e3:de:26:90'
+    config.set('gateway', 'device', 'UXG')
+    ports = {e['name']: e for e in json.loads(_create_complete_inform(config, dc))['port_table']}
+    assert ports['eth1']['mac'] == '1a:0e:e3:de:26:90'
+
+
 def _dc_with(**extra):
     dc = _dc()
     dc.data['ifstat']['eth1'].update({'rx_bps': 1250, 'tx_bps': 250})

@@ -140,11 +140,13 @@ class BaseCollector:
             realif = port['realif']
             ifname = port['ifname']
             # A MAC set on the port in the config wins; needed for interfaces without one (e.g. PPPoE)
-            mac = port.get('mac')
-            if mac:
-                mac = str(mac).replace('-', ':').lower()
+            mac = None
+            configured = port.get('mac')
+            if configured:
+                mac = str(configured).replace('-', ':').lower()
                 if not re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac):
-                    raise ValueError(f'invalid configured MAC for port {ifname}')
+                    logger.error('Invalid MAC %r configured for port %s in [gateway] ports', configured, ifname)
+                    raise ValueError(f'invalid MAC {configured!r} configured for port {ifname}')
                 ret[ifname] = mac
                 continue
 
