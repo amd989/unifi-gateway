@@ -16,6 +16,7 @@ trap 'rm -rf "$WORK"' EXIT
 # ── Data (installed files) ─────────────────────────────────────────
 mkdir -p "$WORK/data/usr/bin"
 mkdir -p "$WORK/data/usr/lib/unifi-gateway/collectors"
+mkdir -p "$WORK/data/usr/lib/unifi-gateway/provisioners"
 mkdir -p "$WORK/data/etc/init.d"
 mkdir -p "$WORK/data/etc/unifi-gateway"
 
@@ -29,6 +30,9 @@ for f in unifi_gateway.py unifi_protocol.py tools.py tlv.py daemon.py datacollec
 done
 for f in __init__.py base.py linux.py freebsd.py openwrt.py opnsense.py pfsense.py; do
     cp "$ROOT_DIR/collectors/$f" "$WORK/data/usr/lib/unifi-gateway/collectors/$f"
+done
+for f in __init__.py openwrt_dhcp.py; do
+    cp "$ROOT_DIR/provisioners/$f" "$WORK/data/usr/lib/unifi-gateway/provisioners/$f"
 done
 
 # Init script + sample config

@@ -48,6 +48,7 @@ The codebase uses psutil for cross-platform data collection (Linux + FreeBSD). T
   - `pfsense.py` — `PfSenseCollector(FreeBSDCollector)`: pfSense API integration.
   - `__init__.py` — `create_collector(config)` factory with auto-detection (`platform = auto | linux | opnsense | openwrt | pfsense | freebsd`).
 - `datacollector.py` — Backward-compatibility shim, delegates to `collectors.create_collector()`.
+- `provisioners/openwrt_dhcp.py` — Optional `[openwrt]` DHCP sync (off by default): on `setparam` → `system_cfg`, applies the controller's DHCP pool and IPv4 reservations (USG or udapi format) for one subnet to OpenWrt `/etc/config/dhcp` via one `uci batch`, touching only entries it marks `unifi_managed`. Wired in `UnifiGateway._handle_response`. Tests: `tests/test_openwrt_dhcp.py`.
 - `tools.py` — Helper functions for building `if_table` and `network_table` structures that the controller expects, plus conversion utilities (MAC/IP string-to-array, netmask-to-CIDR, uptime via psutil).
 - `tlv.py` — TLV (Type-Length-Value) encoding for UDP broadcast discovery messages.
 - `daemon.py` — Generic Unix daemon class (double-fork, PID file management).
