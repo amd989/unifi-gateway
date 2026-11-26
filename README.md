@@ -258,7 +258,7 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 
 | Key | Default | Description |
 |---|---|---|
-| `ports` | *(required)* | JSON list mapping UniFi ports to real interfaces |
+| `ports` | *(required)* | JSON list mapping UniFi ports to real interfaces. Optional per port: `mac` (overrides detection, e.g. for PPPoE interfaces without a MAC) |
 | `lan_ip` | *(required)* | LAN IP address |
 | `lan_mac` | *(required)* | LAN MAC address |
 | `firmware` | `4.4.18.5052168` | Reported firmware version |
@@ -271,6 +271,7 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 | `ping_target` | `ping.ubnt.com` | Host for latency measurement |
 | `speedtest_file` | `./speedtest.json` | Path to speedtest results JSON |
 | `platform` | `UNIFI-GW` | Platform string in discovery broadcasts |
+| `extra_inform` | *(none)* | JSON object merged into every complete inform last (testing/overrides). An invalid value is logged and ignored |
 
 #### `[openwrt]`: DHCP from the controller (optional, off by default)
 
@@ -323,6 +324,43 @@ records and `host-<mac>`.
 #### `[provisioned]`
 
 Populated automatically by the controller after adoption. Do not edit manually.
+
+## Emulating a Gateway Lite (UXG) instead of a USG
+
+UniFi Network 10.6 is the last release line that supports the USG (`UGW3`). With `device = UXG` the daemon poses
+as a UniFi Gateway Lite, a supported UniFi OS gateway, and the controller provisions it with the UniFi OS ("udapi")
+config format instead of the USG one.
+
+```ini
+[gateway]
+device = UXG
+device_display = Gateway Lite
+# use the version the controller lists as current for UXG, or it shows an Update button
+firmware = 6.0.17.36539
+# Gateway Lite ports: eth0 = LAN, eth1 = WAN (optional per port: "mac", "port_idx", "media", "speed" in Mb/s)
+ports = [ { "ifname": "eth0", "name": "LAN", "type": "lan", "realif": "br-lan" },
+          { "ifname": "eth1", "name": "WAN", "type": "wan", "realif": "wan" } ]
+```
+
+For any model that isn't `UGW*`, the complete inform also carries:
+
+- `port_table`: one entry per configured port with `port_idx` and `name` = the emulated ifname, plus live counters
+  and rates (`rx_bytes-r`/`tx_bytes-r` in bytes/s, `rx_rate`/`tx_rate` in bits/s). Without it the controller logs
+  `Could not find port information for NetworkConf interface eth1` and sends no interfaces or DHCP config. The WAN
+  entry becomes the controller's WAN stats (throughput, "Down/Up Activity"). Speed is the detected link speed
+  (psutil), or the port's `speed`; the media follows from it (`FE`, `GE`, `2.5GE`, `10GE`) unless `media` is set.
+- `uptime_stats.WAN`: uptime, availability and latency from the ping to `ping_target`. The controller marks the
+  WAN online when `uptime > 0`, and takes latency/availability from the first `alerting_monitors` entry. The UI's
+  "Connection" is Excellent at availability 100 and latency < 50 ms, and Failed when those values are missing.
+- `udapi_version.versionDetail`: the udapi features the "firmware" supports. The controller only sends config
+  sections listed here (`services/dhcpServers`, `interfaces`, `vlans`, ...).
+- `leaseExpiry` per `ipv4_active_leases` entry, and `active_dhcp_lease_count` on the LAN `network_table` entry.
+
+The config arrives as `setparam` → `system_cfg`, a JSON string `{"udapi": {...}, "ubntconf": "..."}`.
+`udapi.services.dhcpServers[]` holds each network's pool, lease time, DNS, domain, options and
+`staticLeases[{"id": MAC, "addresses": [IP]}]`. It's recorded in `unhandled_commands.json` and contains secrets
+(tokens, certificates, password hashes). Moving an existing USG to UXG means forgetting the device and adopting
+it again. Tested against UniFi Network 10.6.109 only, not UniFi OS Server or Network 11.
 
 ## Speed Test
 

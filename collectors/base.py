@@ -37,6 +37,7 @@ class BaseCollector:
 
     def update(self):
         self.data['ifstat'] = self._get_ifstat()
+        self.data['link_speeds'] = self._get_link_speeds()
         self.data['dhcp_leases'] = self._get_dhcp_leases()
         self.data['ip'] = self._get_interface_addresses()
         self.data['nameservers'] = self._get_nameservers()
@@ -109,6 +110,22 @@ class BaseCollector:
         self._prev_time = now
         return ret
 
+    # ── Link speeds ──────────────────────────────────────────────────────
+
+    def _get_link_speeds(self):
+        """Negotiated speed in Mb/s per emulated port (0/missing when unknown, e.g. PPPoE)."""
+        ret = {}
+        try:
+            stats = psutil.net_if_stats()
+        except OSError as e:
+            logger.debug('Failed to get interface stats: %s', e)
+            return ret
+        for port in self.ports:
+            st = stats.get(port['realif'])
+            if st is not None and getattr(st, 'speed', 0) and st.speed > 0:
+                ret[port['ifname']] = int(st.speed)
+        return ret
+
     # ── MAC addresses ────────────────────────────────────────────────────
 
     def _get_interface_macs(self):
@@ -122,7 +139,16 @@ class BaseCollector:
         for port in self.ports:
             realif = port['realif']
             ifname = port['ifname']
+            # A MAC set on the port in the config wins; needed for interfaces without one (e.g. PPPoE)
             mac = None
+            configured = port.get('mac')
+            if configured:
+                mac = str(configured).replace('-', ':').lower()
+                if not re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac):
+                    logger.error('Invalid MAC %r configured for port %s in [gateway] ports', configured, ifname)
+                    raise ValueError(f'invalid MAC {configured!r} configured for port {ifname}')
+                ret[ifname] = mac
+                continue
 
             if realif in addrs:
                 for addr in addrs[realif]:

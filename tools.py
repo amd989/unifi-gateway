@@ -32,7 +32,15 @@ def get_hostname():
     return socket.gethostname()
 
 
+def port_speed(data, port):
+    """Port speed in Mb/s: the port's "speed" from the config, else the detected link speed, else 1000."""
+    if port.get('speed'):
+        return int(port['speed'])
+    return int(data.get('link_speeds', {}).get(port['ifname']) or 1000)
+
+
 def get_if_table(data, ports):
+    ports_by_if = {d['ifname']: d for d in ports}
     if_list = [d['ifname'] for d in ports]
     wan_if = [d['ifname'] for d in ports if d['type'].lower() == 'wan'][0]
     if_table = []
@@ -56,7 +64,7 @@ def get_if_table(data, ports):
             'rx_errors': info['rx_errors'],
             'rx_multicast': info['rx_multicast'],
             'rx_packets': info['rx_packets'],
-            'speed': 1000,
+            'speed': port_speed(data, ports_by_if[iface]),
             'tx_bytes': info['tx_bytes'],
             'tx_bps': info['tx_bps'],
             'tx_dropped': info['tx_dropped'],
@@ -80,6 +88,7 @@ def get_if_table(data, ports):
 
 
 def get_network_table(data, ports):
+    ports_by_if = {d['ifname']: d for d in ports}
     if_list = [d['ifname'] for d in ports]
     lan_if = [d['ifname'] for d in ports if d['type'].lower() == 'lan'][0]
     wan_if = [d['ifname'] for d in ports if d['type'].lower() == 'wan'][0]
@@ -99,12 +108,14 @@ def get_network_table(data, ports):
             'mac': data['macs'][iface],
             'mtu': '1500',
             'name': iface,
-            'speed': '1000',
+            'speed': str(port_speed(data, ports_by_if[iface])),
             'stats': get_net_stats(data, iface),
             'up': 'true',
         }
         if iface == lan_if:
             net_entry['host_table'] = data.get('host_table', [])
+            # UniFi OS controllers compare this sum with ipv4_active_leases to decide when to re-pull leases
+            net_entry['active_dhcp_lease_count'] = len(data.get('dhcp_leases', []))
         elif iface == wan_if:
             if 'gateway' in data['ip'].get(iface, {}):
                 net_entry['gateways'] = [data['ip'][iface]['gateway']]

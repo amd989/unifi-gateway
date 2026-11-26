@@ -20,6 +20,7 @@ from binascii import a2b_hex
 
 from tlv import UnifiTLV
 from tools import (
+    port_speed,
     mac_string_2_array, ip_string_2_array, netmask_to_cidr,
     uptime, get_hostname, get_if_table, get_network_table,
 )
@@ -155,6 +156,37 @@ def _create_partial_inform(config, dc):
     })
 
 
+# udapi features (and schema versions) a UniFi OS gateway reports. The controller only sends config
+# sections for features listed here ("UDAPI feature X is defined, but is not supported by firmware").
+UDAPI_VERSION_DETAIL = {
+    'interfaces': 40,
+    'services/dhcpServers': 2,
+    'vlans': 1,
+    'firewall/settings': 1,
+    'services/ntpClient': 1,
+    'services/sshServer': 1,
+    'services/systemLog': 1,
+    'services/lldp': 1,
+    'services/upnp': 1,
+    'services/igmpProxy': 1,
+    'services/dpi': 1,
+    'routes/tables': 1,
+    'system/users': 1,
+    'qos': 1,
+    'bridge-firewall': 1,
+    'services/discoveryResponder': 1,
+}
+
+
+# Controller media names by link speed (Mb/s)
+MEDIA_BY_SPEED = {10: 'FE', 100: 'FE', 1000: 'GE', 2500: '2.5GE', 10000: '10GE'}
+
+
+def is_unifi_os_gateway(config):
+    """True for UniFi OS gateway models (UXG etc.); False for the classic USG (UGW*) models."""
+    return not config.get('gateway', 'device').upper().startswith('UGW')
+
+
 def _create_complete_inform(config, dc):
     ports = ast.literal_eval(config.get('gateway', 'ports'))
     lan_if = [d['ifname'] for d in ports if d['type'].lower() == 'lan'][0]
@@ -171,6 +203,9 @@ def _create_complete_inform(config, dc):
     active_leases = []
     for lease in dc.data.get('dhcp_leases', []):
         entry = {'mac': lease['mac'], 'ip': lease['ip']}
+        # UniFi OS gateways report lease expiry (epoch seconds) per lease
+        if str(lease.get('expiry', '')).isdigit():
+            entry['leaseExpiry'] = int(lease['expiry'])
         if 'hostname' in lease:
             entry['hostname'] = lease['hostname']
         active_leases.append(entry)
@@ -238,7 +273,96 @@ def _create_complete_inform(config, dc):
         'if_table': get_if_table(dc.data, ports),
     }
 
+    if is_unifi_os_gateway(config):
+        # UniFi OS gateways (e.g. UXG = Gateway Lite) need a port_table (port_idx + name=ifname),
+        # or the controller finds no port information and sends no interfaces/DHCP config.
+        payload['port_table'] = _build_port_table(dc, ports)
+        # Without udapi_version.versionDetail the controller sends no udapi config sections.
+        payload['udapi_version'] = {'versionDetail': dict(UDAPI_VERSION_DETAIL)}
+        # WAN health: the controller treats a WAN as online when uptime_stats.WAN.uptime > 0
+        payload['uptime_stats'] = _build_uptime_stats(config, dc, wan_if)
+
+    # Optional raw JSON merged into the inform last (testing / overriding fields)
+    payload.update(extra_inform(config))
     return json.dumps(payload)
+
+
+_extra_inform_cache = {}
+
+
+def extra_inform(config):
+    """The [gateway] extra_inform object, or {} when unset or invalid.
+
+    Parsed once per distinct value. An invalid value is logged once and skipped, so a typo can't make
+    every inform fail (which takes the gateway offline in the controller).
+    """
+    if not config.has_option('gateway', 'extra_inform'):
+        return {}
+    raw = config.get('gateway', 'extra_inform')
+    if raw not in _extra_inform_cache:
+        try:
+            value = json.loads(raw)
+            if not isinstance(value, dict):
+                raise ValueError('not a JSON object')
+        except ValueError as e:
+            logger.error('Ignoring [gateway] extra_inform: %s', e)
+            value = {}
+        _extra_inform_cache[raw] = value
+    return _extra_inform_cache[raw]
+
+
+def _build_port_table(dc, ports):
+    """One entry per configured port, with live counters (UniFi OS gateway inform format)."""
+    table = []
+    ifstat = dc.data.get('ifstat', {})
+    for idx, port in enumerate(ports, start=1):
+        ifname = port['ifname']
+        st = ifstat.get(ifname, {})
+        speed = port_speed(dc.data, port)
+        entry = {
+            'port_idx': int(port.get('port_idx', idx)),
+            'name': ifname,
+            'ifname': ifname,
+            'media': port.get('media') or MEDIA_BY_SPEED.get(speed, 'GE'),
+            'speed': speed,
+            'full_duplex': True,
+            'up': ifname in dc.data.get('ip', {}) or bool(st),
+            'enable': True,
+            'is_uplink': port['type'].lower() == 'wan',
+            # the collector's MAC: already normalized, and a port's configured "mac" wins there
+            'mac': dc.data.get('macs', {}).get(ifname, '00:00:00:00:00:00'),
+        }
+        for k in ('rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets', 'rx_errors', 'tx_errors',
+                  'rx_dropped', 'tx_dropped', 'rx_multicast'):
+            if k in st:
+                entry[k] = int(st[k])
+        # Live throughput: the controller reads bytes/s (*_bytes-r) and bits/s (*_rate) from here
+        rx, tx = int(st.get('rx_bps', 0)), int(st.get('tx_bps', 0))  # collector rates are bytes/s
+        entry.update({'rx_bytes-r': rx, 'tx_bytes-r': tx, 'bytes-r': rx + tx,
+                      'rx_rate': rx * 8, 'tx_rate': tx * 8})
+        table.append(entry)
+    return table
+
+
+def _build_uptime_stats(config, dc, wan_if):
+    """WAN health in the UniFi OS gateway format: uptime, availability and latency per WAN."""
+    target = config.get('gateway', 'ping_target') if config.has_option('gateway', 'ping_target') else 'ping.ubnt.com'
+    has_ip = bool(dc.data.get('ip', {}).get(wan_if, {}).get('address'))
+    latency = dc.data.get('latency') or 0
+    reachable = has_ip and latency > 0
+    monitor = {'target': target, 'type': 'icmp',
+               'availability': 100 if reachable else 0,
+               'latency_average': round(latency)}
+    # The controller reads the WAN's latency/availability from the FIRST alerting_monitors entry (the UI shows
+    # "Connection: Failed" without it); the name notwithstanding, real gateways list their monitors there.
+    return {'WAN': {
+        'uptime': uptime() if has_ip else 0,
+        'availability': monitor['availability'],
+        'latency_average': monitor['latency_average'],
+        'time_period': 300,
+        'monitors': [monitor],
+        'alerting_monitors': [dict(monitor)],
+    }}
 
 
 def _build_routes(dc, wan_if, lan_if):

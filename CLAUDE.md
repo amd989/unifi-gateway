@@ -53,7 +53,9 @@ The codebase uses psutil for cross-platform data collection (Linux + FreeBSD). T
 - `tlv.py` — TLV (Type-Length-Value) encoding for UDP broadcast discovery messages.
 - `daemon.py` — Generic Unix daemon class (double-fork, PID file management).
 
-**Config:** `conf/unifi-gateway.conf` — INI format with `[global]`, `[gateway]`, and `[provisioned]` sections. The `ports` field maps emulated UniFi interface names (`eth0`/`eth1`/`eth2`) to real system interfaces via `realif`. Config is modified at runtime by controller responses and saved back. Optional keys: `hostname`, `dhcp_lease_file`, `dhcp_lease_format`, `ping_target`, `speedtest_file`, `platform`.
+**Config:** `conf/unifi-gateway.conf` — INI format with `[global]`, `[gateway]`, and `[provisioned]` sections. The `ports` field maps emulated UniFi interface names (`eth0`/`eth1`/`eth2`) to real system interfaces via `realif`. Config is modified at runtime by controller responses and saved back. Optional keys: `hostname`, `dhcp_lease_file`, `dhcp_lease_format`, `ping_target`, `speedtest_file`, `platform`, `extra_inform` (JSON merged into the inform).
+
+**UniFi OS gateway models:** `device` values not starting with `UGW` (e.g. `UXG` = Gateway Lite) make `_create_complete_inform` add `port_table` (built from `ports` with live counters) and `udapi_version.versionDetail` (`UDAPI_VERSION_DETAIL`). The controller then provisions udapi config instead of the USG config. See the README section "Emulating a Gateway Lite".
 
 **Environment variables:** `UNIFI_GW_CONFIG` (config path), `UNIFI_GW_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR), `UNIFI_GW_LOG_FILE` (log to file).
 
