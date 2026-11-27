@@ -7,3 +7,4 @@ conf/unifi-gateway.conf
 conf/unhandled_commands.json
 speedtest.json
 *.pid
+.env
