@@ -1,0 +1,45 @@
+# UniFi gateway emulator for OPNsense, configured entirely through environment variables.
+# Runs on any Docker host (or Dokploy / Portainer / Coolify): no config file, no host networking,
+# no published ports. Set the variables in your platform's environment editor or in a .env file
+# next to this file. Guide: README, "Deploy with Docker against OPNsense".
+
+services:
+  unifi-gateway:
+    image: ${UNIFI_GW_IMAGE:-ghcr.io/amd989/unifi-gateway:latest}
+    # always fetch the newest :latest on (re)deploy instead of reusing the image already on the host
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # OPNsense API (System > Access > Users > API keys)
+      OPNSENSE_API_URL: ${OPNSENSE_API_URL:?OPNSENSE_API_URL is required}
+      OPNSENSE_API_KEY: ${OPNSENSE_API_KEY:?OPNSENSE_API_KEY is required}
+      OPNSENSE_API_SECRET: ${OPNSENSE_API_SECRET:?OPNSENSE_API_SECRET is required}
+      OPNSENSE_VERIFY_SSL: ${OPNSENSE_VERIFY_SSL:-true}
+      OPNSENSE_DHCP_BACKEND: ${OPNSENSE_DHCP_BACKEND:-auto}
+      OPNSENSE_WAN_GATEWAY: ${OPNSENSE_WAN_GATEWAY:-}
+      # Controller inform URL: the container adopts itself once you click Adopt in the controller
+      UNIFI_ADOPT_URL: ${UNIFI_ADOPT_URL:?UNIFI_ADOPT_URL is required}
+      # Emulated model: usg = UniFi Security Gateway (default), uxg = Gateway Lite (UniFi OS gateway).
+      # Changing it on an adopted device means adopting again (README, "Choosing the emulated model").
+      UNIFI_GW_MODEL: ${UNIFI_GW_MODEL:-}
+      UNIFI_GW_DEVICE: ${UNIFI_GW_DEVICE:-}
+      UNIFI_GW_DEVICE_DISPLAY: ${UNIFI_GW_DEVICE_DISPLAY:-}
+      UNIFI_GW_FIRMWARE: ${UNIFI_GW_FIRMWARE:-}
+      # Emulated ports. Default: usg eth0=WAN (wan), eth1=LAN (lan); uxg eth0=LAN, eth1=WAN.
+      # lan_ip/lan_mac default to OPNsense's first LAN port.
+      UNIFI_GW_PLATFORM: opnsense-api
+      UNIFI_GW_PORTS: ${UNIFI_GW_PORTS:-}
+      UNIFI_GW_LAN_IP: ${UNIFI_GW_LAN_IP:-}
+      UNIFI_GW_LAN_MAC: ${UNIFI_GW_LAN_MAC:-}
+      UNIFI_GW_HOSTNAME: ${UNIFI_GW_HOSTNAME:-}
+      UNIFI_GW_LOG_LEVEL: ${UNIFI_GW_LOG_LEVEL:-INFO}
+      # Adoption state (device key) is written here: keep this volume
+      UNIFI_GW_CONFIG: /data/unifi-gateway.conf
+    volumes:
+      - unifi-gateway-data:/data
+      # Optional, to verify OPNsense's self-signed certificate (set OPNSENSE_VERIFY_SSL=/certs/opnsense.pem).
+      # Dokploy: add the cert as a file mount and mount it from ../files:
+      # - ../files/opnsense.pem:/certs/opnsense.pem:ro
+
+volumes:
+  unifi-gateway-data:

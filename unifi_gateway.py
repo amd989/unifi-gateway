@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import ast
 import configparser
 import argparse
 import json
@@ -55,6 +56,131 @@ UNHANDLED_LOG = os.environ.get(
 )
 
 
+# Defaults for a missing config file, so a container can be configured from environment variables alone.
+CONFIG_DEFAULTS = {
+    'global': {'pid_file': 'unifi-gateway.pid', 'disable_broadcast': 'True'},
+    'gateway': {
+        'is_adopted': 'False',
+        'firmware': '4.4.18.5052168',
+        'device': 'UGW3',
+        'device_display': 'UniFi-Gateway-3',
+        'use_aes_gcm': 'False',
+    },
+    'provisioned': {},
+}
+
+# UNIFI_GW_<NAME> overrides [section] key on every start. Adoption state (is_adopted, key,
+# [provisioned]) is never taken from the environment: the daemon owns it.
+ENV_CONFIG_KEYS = {
+    'PLATFORM': ('gateway', 'platform'),
+    'PORTS': ('gateway', 'ports'),
+    'LAN_IP': ('gateway', 'lan_ip'),
+    'LAN_MAC': ('gateway', 'lan_mac'),
+    'HOSTNAME': ('gateway', 'hostname'),
+    'DEVICE': ('gateway', 'device'),
+    'DEVICE_DISPLAY': ('gateway', 'device_display'),
+    'FIRMWARE': ('gateway', 'firmware'),
+    'PING_TARGET': ('gateway', 'ping_target'),
+    'EXTRA_INFORM': ('gateway', 'extra_inform'),
+    'DISABLE_BROADCAST': ('global', 'disable_broadcast'),
+}
+
+
+OPNSENSE_API_DEFAULT_PORTS = (
+    '[{"ifname": "eth0", "name": "WAN", "type": "wan", "realif": "wan"}, '
+    '{"ifname": "eth1", "name": "LAN", "type": "lan", "realif": "lan"}]'
+)
+# UniFi OS gateways (Gateway Lite) number their ports the other way round: eth0 = LAN, eth1 = WAN
+OPNSENSE_API_DEFAULT_PORTS_UNIFI_OS = (
+    '[{"ifname": "eth0", "name": "LAN", "type": "lan", "realif": "lan"}, '
+    '{"ifname": "eth1", "name": "WAN", "type": "wan", "realif": "wan"}]'
+)
+
+# UNIFI_GW_MODEL presets: emulated device, its display name and a firmware it can start with.
+MODEL_PRESETS = {
+    'usg': {'device': 'UGW3', 'device_display': 'UniFi-Gateway-3', 'firmware': '4.4.18.5052168'},
+    'uxg': {'device': 'UXG', 'device_display': 'Gateway Lite', 'firmware': '6.0.17.36539'},
+}
+MODEL_ALIASES = {
+    'usg': 'usg', 'ugw3': 'usg', 'usg3': 'usg', 'usg-3p': 'usg',
+    'uxg': 'uxg', 'gateway-lite': 'uxg', 'gateway_lite': 'uxg', 'uxg-lite': 'uxg', 'uxglite': 'uxg',
+}
+
+
+def apply_model_preset(config, name):
+    key = MODEL_ALIASES.get(name.strip().lower())
+    if key is None:
+        logger.error('Unknown UNIFI_GW_MODEL %r (use: usg, uxg); ignoring it', name)
+        return
+    preset = MODEL_PRESETS[key]
+    model_changed = config.get('gateway', 'device', fallback='') != preset['device']
+    config.set('gateway', 'device', preset['device'])
+    config.set('gateway', 'device_display', preset['device_display'])
+    # Keep a firmware version the controller upgraded us to; only reset it when the model changes
+    if model_changed or not config.get('gateway', 'firmware', fallback='').strip():
+        config.set('gateway', 'firmware', preset['firmware'])
+    if model_changed and config.getboolean('gateway', 'is_adopted', fallback=False):
+        logger.warning('Emulated model changed to %s while adopted: forget the device in the controller '
+                       'and adopt it again (delete the adoption state)', preset['device'])
+
+
+def apply_env_config(config, environ=None):
+    environ = os.environ if environ is None else environ
+    for section, values in CONFIG_DEFAULTS.items():
+        if not config.has_section(section):
+            config.add_section(section)
+        for key, value in values.items():
+            if not config.has_option(section, key):
+                config.set(section, key, value)
+    model = environ.get('UNIFI_GW_MODEL', '').strip()
+    if model:
+        apply_model_preset(config, model)
+    for name, (section, key) in ENV_CONFIG_KEYS.items():
+        value = environ.get('UNIFI_GW_' + name)
+        if value is not None and value.strip() != '':
+            config.set(section, key, value.strip())
+    # OPNsense API credentials given but no platform chosen: that can only mean the remote collector
+    if config.get('gateway', 'platform', fallback='auto').strip().lower() in ('', 'auto') and (
+            environ.get('OPNSENSE_API_URL', '').strip() or config.get('opnsense', 'api_url', fallback='').strip()):
+        config.set('gateway', 'platform', 'opnsense-api')
+    unifi_os = not config.get('gateway', 'device', fallback='UGW3').upper().startswith('UGW')
+    if config.get('gateway', 'platform', fallback='') in ('opnsense-api', 'opnsense_api'):
+        wanted = OPNSENSE_API_DEFAULT_PORTS_UNIFI_OS if unifi_os else OPNSENSE_API_DEFAULT_PORTS
+        current = config.get('gateway', 'ports', fallback='').strip()
+        # Empty, or still the other model's default (saved before UNIFI_GW_MODEL changed): use this model's
+        # default. Ports set explicitly (UNIFI_GW_PORTS or a custom config) are left alone.
+        if not current or (not environ.get('UNIFI_GW_PORTS', '').strip()
+                           and _port_layout(current) in (_port_layout(OPNSENSE_API_DEFAULT_PORTS),
+                                                         _port_layout(OPNSENSE_API_DEFAULT_PORTS_UNIFI_OS))):
+            if _port_layout(current) != _port_layout(wanted):
+                if current:
+                    logger.info('Switching the default port layout to the one for %s',
+                                config.get('gateway', 'device', fallback='?'))
+                config.set('gateway', 'ports', wanted)
+    _warn_wan_port(config, unifi_os)
+
+
+def _port_layout(ports):
+    """(ifname, type, realif) per port, for comparing port settings; None if unparsable."""
+    try:
+        return tuple((p['ifname'], p['type'].lower(), p.get('realif')) for p in ast.literal_eval(ports))
+    except (ValueError, SyntaxError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def _warn_wan_port(config, unifi_os):
+    """The controller expects the WAN on eth0 (USG) or eth1 (Gateway Lite); another layout shows the LAN as WAN1."""
+    layout = _port_layout(config.get('gateway', 'ports', fallback=''))
+    if not layout:
+        return
+    wan = next((ifname for ifname, ptype, _ in layout if ptype == 'wan'), None)
+    expected = 'eth1' if unifi_os else 'eth0'
+    if wan and wan != expected:
+        logger.warning('The WAN port is %s, but the controller expects the WAN of a %s on %s: it will show '
+                       'another port as WAN1. Fix the port layout (UNIFI_GW_PORTS / ports).',
+                       wan, config.get('gateway', 'device', fallback='?'), expected)
+
+
 class UnifiGateway(Daemon):
 
     def __init__(self, **kwargs):
@@ -64,6 +190,7 @@ class UnifiGateway(Daemon):
         self._stop = threading.Event()
         self.config = configparser.RawConfigParser()
         self.config.read(CONFIG_FILE)
+        apply_env_config(self.config)
 
         if not self.config.has_section('provisioned'):
             self.config.add_section('provisioned')
@@ -136,6 +263,11 @@ class UnifiGateway(Daemon):
         return self.config.getboolean('gateway', 'is_adopted')
 
     def run(self):
+        logger.info('unifi-gateway build %s, emulating %s (%s), firmware %s',
+                    os.environ.get('UNIFI_GW_BUILD', 'dev')[:7],
+                    self.config.get('gateway', 'device', fallback='?'),
+                    self.config.get('gateway', 'device_display', fallback='?'),
+                    self.config.get('gateway', 'firmware', fallback='?'))
         self._init_collector()
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)

@@ -12,6 +12,10 @@ RUN apt-get update && \
 
 COPY . .
 
+# Commit the image was built from, logged at start (set by .github/workflows/docker.yml)
+ARG VCS_REF=unknown
+ENV UNIFI_GW_BUILD=$VCS_REF
+
 ENV UNIFI_GW_CONFIG=/app/conf/unifi-gateway.conf
 ENV UNIFI_GW_LOG_LEVEL=INFO
 

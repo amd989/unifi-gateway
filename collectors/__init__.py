@@ -23,6 +23,9 @@ def create_collector(config):
 
     logger.info('Using platform collector: %s', platform_name)
 
+    if platform_name in ('opnsense-api', 'opnsense_api'):
+        from .opnsense_api import OPNsenseApiCollector
+        return OPNsenseApiCollector(config)
     if platform_name == 'opnsense':
         from .opnsense import OPNSenseCollector
         return OPNSenseCollector(config)

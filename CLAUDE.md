@@ -46,6 +46,7 @@ The codebase uses psutil for cross-platform data collection (Linux + FreeBSD). T
   - `opnsense.py` — `OPNSenseCollector(FreeBSDCollector)`: OPNSense REST API integration (ARP, Netflow, config push).
   - `openwrt.py` — `OpenWRTCollector(LinuxCollector)`: ubus/LuCI RPC integration (leases, host hints, conntrack).
   - `pfsense.py` — `PfSenseCollector(FreeBSDCollector)`: pfSense API integration.
+  - `opnsense_api.py` — `OPNsenseApiCollector(BaseCollector)` (`platform = opnsense-api`): remote collector, reads everything over the OPNsense REST API (`[opnsense]` section / `OPNSENSE_*` env vars) so it can run in a container without host networking. Registers the router's uptime/hostname with `tools.set_host_provider()`. Tests: `tests/test_opnsense_api_collector.py`.
   - `__init__.py` — `create_collector(config)` factory with auto-detection (`platform = auto | linux | opnsense | openwrt | pfsense | freebsd`).
 - `datacollector.py` — Backward-compatibility shim, delegates to `collectors.create_collector()`.
 - `provisioners/openwrt_dhcp.py` — Optional `[openwrt]` DHCP sync (off by default): on `setparam` → `system_cfg`, applies the controller's DHCP pool and IPv4 reservations (USG or udapi format) for one subnet to OpenWrt `/etc/config/dhcp` via one `uci batch`, touching only entries it marks `unifi_managed`. Wired in `UnifiGateway._handle_response`. Tests: `tests/test_openwrt_dhcp.py`.
@@ -57,7 +58,7 @@ The codebase uses psutil for cross-platform data collection (Linux + FreeBSD). T
 
 **UniFi OS gateway models:** `device` values not starting with `UGW` (e.g. `UXG` = Gateway Lite) make `_create_complete_inform` add `port_table` (built from `ports` with live counters) and `udapi_version.versionDetail` (`UDAPI_VERSION_DETAIL`). The controller then provisions udapi config instead of the USG config. See the README section "Emulating a Gateway Lite".
 
-**Environment variables:** `UNIFI_GW_CONFIG` (config path), `UNIFI_GW_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR), `UNIFI_GW_LOG_FILE` (log to file).
+**Environment variables:** `UNIFI_GW_CONFIG` (config path), `UNIFI_GW_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR), `UNIFI_GW_LOG_FILE` (log to file). `UNIFI_GW_<KEY>` overrides deployment keys (`ENV_CONFIG_KEYS` in `unifi_gateway.py`: platform, ports, lan_ip, lan_mac, …) via `apply_env_config()`, which also fills `CONFIG_DEFAULTS` so a container runs without a config file (`docker-compose.opnsense.yml`). Adoption state is never taken from the environment.
 
 **Key protocol detail:** The inform packet format is `TNBU` magic + version + MAC + flags + IV + payload version + payload length + encrypted/compressed JSON payload. Flags indicate encryption type (CBC vs GCM) and compression (zlib vs snappy).
 

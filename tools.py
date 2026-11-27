@@ -17,7 +17,23 @@ def netmask_to_cidr(netmask):
     return sum(bin(int(x)).count('1') for x in netmask.split('.'))
 
 
+# A remote collector (e.g. opnsense-api) reports the router's uptime/hostname instead of this host's.
+_uptime_fn = None
+_hostname_fn = None
+
+
+def set_host_provider(uptime_fn=None, hostname_fn=None):
+    global _uptime_fn, _hostname_fn
+    _uptime_fn = uptime_fn
+    _hostname_fn = hostname_fn
+
+
 def uptime():
+    if _uptime_fn is not None:
+        try:
+            return int(_uptime_fn())
+        except Exception:
+            return 0
     try:
         return int(time.time() - psutil.boot_time())
     except Exception:
@@ -29,6 +45,11 @@ def uptime():
 
 
 def get_hostname():
+    if _hostname_fn is not None:
+        try:
+            return _hostname_fn()
+        except Exception:
+            pass
     return socket.gethostname()
 
 

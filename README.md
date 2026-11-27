@@ -74,7 +74,8 @@ docker pull ghcr.io/amd989/unifi-gateway:latest
 docker compose up -d
 ```
 
-See the [Docker section](#docker) below for details.
+See the [Docker section](#docker) below for details. To run in Docker on a separate machine against an OPNsense
+router (no install on the router), see [Deploy with Docker against OPNsense](#deploy-with-docker-against-opnsense-no-install-on-the-router).
 
 ### Standalone Binaries
 
@@ -182,6 +183,11 @@ python3 -m venv /opt/unifi-gateway/venv
 /opt/unifi-gateway/venv/bin/python unifi_gateway.py run
 ```
 
+### OPNsense, remotely via the REST API
+
+To run the emulator in Docker on another machine and read OPNsense over its API instead of installing it
+on the router, see [Deploy with Docker against OPNsense](#deploy-with-docker-against-opnsense-no-install-on-the-router).
+
 ### pfSense (FreeBSD)
 
 Same as OPNSense but uses ISC dhcpd instead of KEA:
@@ -194,6 +200,266 @@ dhcp_lease_format = isc
 ### Generic Linux (Debian, Ubuntu, etc.)
 
 Works out of the box. Uses `/proc/net/dev` for multicast counters, `/proc/net/route` for default gateway, and `/etc/resolv.conf` for nameservers.
+
+## Deploy with Docker against OPNsense (no install on the router)
+
+With `platform = opnsense-api` the emulator reads everything from the OPNsense REST API, so it runs in
+a container on any Docker host (NAS, home server, VM, Raspberry Pi, Dokploy) instead of on the router. It only
+makes outbound HTTP(S) calls, to the OPNsense API and to the controller's `/inform`, so it needs
+**no host networking and no open ports**.
+
+```
+ Docker host                      OPNsense                    UniFi Network controller
+ unifi-gateway  ──HTTPS GET /api/*──▶  web GUI / API
+ container      ──HTTP POST /inform────────────────────────▶  shows a "USG"/gateway
+```
+
+What you need:
+
+- A Docker host with Compose v2, or a platform like Dokploy or Portainer, that can reach the OPNsense web GUI (its LAN address, e.g. `https://192.168.1.1`) and the controller's inform port (usually `8080`).
+- A current OPNsense release. This was developed against the 26.x API; older releases may lack some endpoints (Dnsmasq DHCP leases, for example, only exist since Dnsmasq became a DHCP server). The endpoints used are listed under [OPNsense API reference](#opnsense-api-reference).
+- A UniFi Network controller, self-hosted or on a UniFi OS console, with **no real UniFi gateway** adopted on the same site.
+
+### 1. Create an API user in OPNsense
+
+1. **System → Access → Users → Add**. Name it, for example, `unifi-gateway`, set a long random password (it is never used to sign in), and save.
+2. Edit the user, open **Effective Privileges → Edit**, and add:
+   **Status: Interfaces**, **System: Gateways**, **Diagnostics: ARP Table**, **Lobby: Dashboard**,
+   **Diagnostics: System Activity**, and the one for your DHCP server: **Services: DHCP: Kea(v4)**
+   *or* **Services: Dnsmasq DNS/DHCP: Settings**. Save.
+3. Under **API keys**, click **+**. Your browser downloads `apikey.txt`, which contains `key=` and `secret=`. Keep it safe: OPNsense won't show the secret again.
+
+OPNsense privileges are per page, not read-only. The Kea and Gateways privileges also allow changes through
+the API, so treat the key like a password. The emulator itself only makes GET requests.
+
+### 2. The compose file
+
+Everything is configured through environment variables, so this one file is the whole deployment. There's no
+config file to copy over, and the adoption state goes in a named volume. It's the same as
+[`docker-compose.opnsense.yml`](docker-compose.opnsense.yml) in this repo:
+
+```yaml
+services:
+  unifi-gateway:
+    image: ${UNIFI_GW_IMAGE:-ghcr.io/amd989/unifi-gateway:latest}
+    # always fetch the newest :latest on (re)deploy instead of reusing the image already on the host
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # OPNsense API (System > Access > Users > API keys)
+      OPNSENSE_API_URL: ${OPNSENSE_API_URL:?OPNSENSE_API_URL is required}
+      OPNSENSE_API_KEY: ${OPNSENSE_API_KEY:?OPNSENSE_API_KEY is required}
+      OPNSENSE_API_SECRET: ${OPNSENSE_API_SECRET:?OPNSENSE_API_SECRET is required}
+      OPNSENSE_VERIFY_SSL: ${OPNSENSE_VERIFY_SSL:-true}
+      OPNSENSE_DHCP_BACKEND: ${OPNSENSE_DHCP_BACKEND:-auto}
+      OPNSENSE_WAN_GATEWAY: ${OPNSENSE_WAN_GATEWAY:-}
+      # Controller inform URL: the container adopts itself once you click Adopt in the controller
+      UNIFI_ADOPT_URL: ${UNIFI_ADOPT_URL:?UNIFI_ADOPT_URL is required}
+      # Emulated model: usg = UniFi Security Gateway (default), uxg = Gateway Lite (UniFi OS gateway).
+      # Changing it on an adopted device means adopting again (README, "Choosing the emulated model").
+      UNIFI_GW_MODEL: ${UNIFI_GW_MODEL:-}
+      UNIFI_GW_DEVICE: ${UNIFI_GW_DEVICE:-}
+      UNIFI_GW_DEVICE_DISPLAY: ${UNIFI_GW_DEVICE_DISPLAY:-}
+      UNIFI_GW_FIRMWARE: ${UNIFI_GW_FIRMWARE:-}
+      # Emulated ports. Default: usg eth0=WAN (wan), eth1=LAN (lan); uxg eth0=LAN, eth1=WAN.
+      # lan_ip/lan_mac default to OPNsense's first LAN port.
+      UNIFI_GW_PLATFORM: opnsense-api
+      UNIFI_GW_PORTS: ${UNIFI_GW_PORTS:-}
+      UNIFI_GW_LAN_IP: ${UNIFI_GW_LAN_IP:-}
+      UNIFI_GW_LAN_MAC: ${UNIFI_GW_LAN_MAC:-}
+      UNIFI_GW_HOSTNAME: ${UNIFI_GW_HOSTNAME:-}
+      UNIFI_GW_LOG_LEVEL: ${UNIFI_GW_LOG_LEVEL:-INFO}
+      # Adoption state (device key) is written here: keep this volume
+      UNIFI_GW_CONFIG: /data/unifi-gateway.conf
+    volumes:
+      - unifi-gateway-data:/data
+      # Optional, to verify OPNsense's self-signed certificate (set OPNSENSE_VERIFY_SSL=/certs/opnsense.pem).
+      # Dokploy: add the cert as a file mount and mount it from ../files:
+      # - ../files/opnsense.pem:/certs/opnsense.pem:ro
+
+volumes:
+  unifi-gateway-data:
+```
+
+### 3. The environment variables
+
+Only four are required. This is the content for Dokploy's **Environment** tab or a `.env` file next to
+the compose file:
+
+```bash
+OPNSENSE_API_URL=https://192.168.1.1
+OPNSENSE_API_KEY=<key from apikey.txt>
+OPNSENSE_API_SECRET=<secret from apikey.txt>
+UNIFI_ADOPT_URL=http://192.168.1.10:8080/inform
+
+# Optional
+# UNIFI_GW_MODEL=uxg                 # emulate a Gateway Lite instead of a USG, see below
+# OPNSENSE_VERIFY_SSL=false          # see the certificate note below
+# OPNSENSE_DHCP_BACKEND=kea          # auto (default), kea, dnsmasq, isc, none
+# OPNSENSE_WAN_GATEWAY=WAN_DHCP      # gateway name whose latency is reported
+# UNIFI_GW_PORTS='[{"ifname":"eth0","name":"WAN","type":"wan","realif":"wan"},{"ifname":"eth1","name":"LAN","type":"lan","realif":"lan"},{"ifname":"eth2","name":"IOT","type":"lan2","realif":"opt1"}]'
+# UNIFI_GW_LAN_MAC=aa:bb:cc:dd:ee:ff # default: read from OPNsense's first LAN port
+# UNIFI_GW_IMAGE=ghcr.io/amd989/unifi-gateway:X.Y.Z   # pin a release
+# UNIFI_GW_LOG_LEVEL=DEBUG
+```
+
+- **Inform URL:** `http://<controller-ip>:8080/inform`, for both a self-hosted Network application and a UniFi OS console.
+- **Ports:** by default WAN is OPNsense's `wan` interface and LAN is `lan`. To add VLANs or other LANs, set
+  `UNIFI_GW_PORTS` and wrap the JSON in single quotes. `realif` is the device (`igc0`, `vlan01`) or identifier
+  (`wan`, `lan`, `opt1`) shown in **Interfaces → Overview**; `ifname` is the UniFi side and must be `eth0`, `eth1`, `eth2`…
+- **LAN IP and MAC:** if you don't set them, they're read from OPNsense's first LAN port at start. The controller
+  identifies the gateway by that MAC.
+- **HTTPS certificate:** OPNsense's web GUI uses a self-signed certificate by default, which fails the default
+  `OPNSENSE_VERIFY_SSL=true`. Either export the certificate (**System → Trust → Certificates**, the one selected
+  under **System → Settings → Administration**), mount it (see the commented line in the compose file) and set
+  `OPNSENSE_VERIFY_SSL=/certs/opnsense.pem`, or set `OPNSENSE_VERIFY_SSL=false`. With the certificate, the host in
+  `OPNSENSE_API_URL` must match it, which usually means the router's hostname rather than its IP.
+- Any `[opnsense]` option from the [reference](#opnsense-api-reference) that isn't in the compose file can be
+  added as an extra line under `environment:`.
+
+#### Choosing the emulated model
+
+`UNIFI_GW_MODEL` picks the hardware the controller sees:
+
+| `UNIFI_GW_MODEL` | Shows up as | Notes |
+|---|---|---|
+| `usg` *(default)* | UniFi Security Gateway (`UGW3`) | USG config format. UniFi Network 10.6 is the last release line that supports the USG |
+| `uxg` (or `gateway-lite`) | Gateway Lite (`UXG`) | UniFi OS gateway, provisioned in the newer "udapi" format. See [Emulating a Gateway Lite](#emulating-a-gateway-lite-uxg-instead-of-a-usg) |
+
+The preset sets the device, its display name, a starting firmware version and the default port layout. The
+Gateway Lite numbers its ports the other way round: eth0 = LAN, eth1 = WAN. If you set `UNIFI_GW_PORTS` yourself,
+follow that layout. A firmware version the controller upgrades the device to is kept across restarts.
+`UNIFI_GW_DEVICE`, `UNIFI_GW_DEVICE_DISPLAY` and `UNIFI_GW_FIRMWARE` override the preset, for example to match the
+version your controller lists as current, so it doesn't show an Update button. Other model codes are untested.
+
+The controller can't change an adopted device's model. To switch an existing deployment, for example from USG to
+Gateway Lite:
+
+1. In the controller, remove (**forget**) the gateway: open the device, and in its settings choose Forget.
+2. Delete the `unifi-gateway-data` volume (Dokploy: the service's volumes; Compose: `docker compose down -v`).
+3. Set `UNIFI_GW_MODEL=uxg` and deploy again.
+4. Adopt the new Gateway Lite in the controller (step 5).
+
+Network settings such as DHCP ranges are stored in the controller, not in the gateway.
+
+To check the key before deploying, from the Docker host:
+
+```bash
+curl -sS -u "<key>:<secret>" https://192.168.1.1/api/diagnostics/system/system_time
+# {"uptime":"3 days, 04:12:33",...}   401 = wrong key/secret, 403 = missing privilege
+```
+
+Add `-k` if the certificate isn't set up yet.
+
+### 4. Deploy
+
+**Dokploy**
+
+1. In a project, **Create Service → Compose**. As the source, either paste the compose file above (*Raw*), or
+   connect this GitHub repository and set **Compose Path** to `./docker-compose.opnsense.yml`.
+   The default, `./docker-compose.yml`, is the on-router setup (host networking, local interfaces) and won't
+   work here: its log shows `Using platform collector: linux`.
+2. In the service's **Environment** tab, paste the variables from step 3 and save.
+3. Click **Deploy** and open **Logs**. Continue with step 5.
+
+The service doesn't need a domain or published ports. Dokploy keeps the `unifi-gateway-data` volume across
+redeploys.
+
+**Plain Docker Compose** (Portainer stacks work the same way)
+
+```bash
+mkdir unifi-gateway && cd unifi-gateway
+# save the compose file above as docker-compose.yml, the variables as .env
+chmod 600 .env
+docker compose up -d && docker compose logs -f
+```
+
+### 5. Adopt in the controller
+
+Adoption runs on its own:
+
+1. The container announces itself, logs `Controller has received initial inform, adopt from GUI`, and exits.
+   Docker restarts it and it announces again. Until you adopt, these restarts are expected, and Dokploy may show
+   the service as restarting.
+2. In the controller, a new gateway (a USG, or a Gateway Lite) appears as *Pending Adoption*. Click **Adopt**.
+3. On the next restart (Docker waits a little longer between each one) the log shows
+   `setparam received, device now adopted` and `Device adopted, starting inform loop`. The device key is saved in
+   the `unifi-gateway-data` volume, and from then on the container keeps running.
+
+You can leave `UNIFI_ADOPT_URL` set: once the device is adopted it's ignored.
+
+### 6. Check that it works
+
+A healthy start looks like this:
+
+```
+INFO : unifi-gateway build 0468dd5, emulating UGW3 (UniFi-Gateway-3), firmware 4.4.57.5578372
+INFO : Using platform collector: opnsense-api
+INFO : Using OPNsense DHCP backend: kea
+INFO : lan_mac not set, using the OPNsense lan MAC aa:bb:cc:dd:ee:ff
+INFO : Device adopted, starting inform loop (interval=10s)
+```
+
+The informs themselves only show at `UNIFI_GW_LOG_LEVEL=DEBUG`. In the controller, the gateway should show
+WAN IP, throughput, latency and clients within a minute.
+
+| Symptom | Cause |
+|---|---|
+| still shows as a USG after setting `UNIFI_GW_MODEL=uxg` | check the first log line, `unifi-gateway build <sha>, emulating …`. If it says `UGW3` or doesn't appear, the old image or compose file is still in use: redeploy (or update a pasted compose file). If it says `UXG`, the controller still has the adopted USG record for this MAC: forget it and delete the volume (see [Choosing the emulated model](#choosing-the-emulated-model)) |
+| the WAN1 panel shows your LAN IP and MAC, or the log warns `The WAN port is eth0, but the controller expects …` | the port layout doesn't match the model: the USG expects the WAN on `eth0`, the Gateway Lite on `eth1`. The default layouts follow `UNIFI_GW_MODEL` by themselves; if you set `UNIFI_GW_PORTS`, put the WAN on the port the model expects |
+| `Using platform collector: linux`, then `No [gateway] ports configured` | Dokploy deployed `./docker-compose.yml` instead of `./docker-compose.opnsense.yml`: fix the Compose Path (step 4) |
+| deploy fails: `required variable … is missing a value` | one of the four required variables isn't set (step 3) |
+| `HTTP 401 - check api_key/api_secret` | wrong key or secret |
+| `HTTP 403 - the API user lacks the privilege` | add the privilege for the endpoint named in the log (step 1) |
+| `CERTIFICATE_VERIFY_FAILED` / hostname mismatch | see the certificate note in step 3 |
+| `timed out` / `Connection refused` to OPNsense | wrong URL or port, or a firewall rule between the Docker host and the GUI |
+| `Could not determine MAC for eth0 (…)` | a `realif` in `UNIFI_GW_PORTS` doesn't match a device or identifier from Interfaces → Overview |
+| `Authentication failed -- wrong authkey or device removed from controller?`, or inform errors after you removed the device in the controller | adoption state is stale: delete the `unifi-gateway-data` volume (Dokploy: the service's volumes; Compose: `docker compose down -v`) and deploy again to re-adopt. All other settings come from the environment, so nothing else is lost |
+| no clients listed | missing DHCP or ARP privilege, or the DHCP backend isn't detected: set `OPNSENSE_DHCP_BACKEND=kea` or `dnsmasq` |
+| WAN latency 0 | gateway monitoring is off in OPNsense (System → Gateways), or set `OPNSENSE_WAN_GATEWAY` to the gateway name |
+
+### 7. Updating and pinning
+
+Dokploy: click **Deploy** again, which pulls the image anew. Compose: `docker compose pull && docker compose up -d`.
+
+Tags: `:latest` is the newest release, `:X.Y.Z` / `:X.Y` a specific one. To pin a version, set
+`UNIFI_GW_IMAGE=ghcr.io/amd989/unifi-gateway:X.Y.Z`.
+
+Updating or recreating the container keeps the device adopted, as long as the `unifi-gateway-data` volume stays.
+
+Not included: speed tests started from the controller need `speedtest-cli`, which the image doesn't contain.
+They're logged as unavailable.
+
+### OPNsense API reference
+
+| Data | Endpoint | Privilege |
+|---|---|---|
+| Interfaces, MACs, IPv4, gateways, link speed, counters | `/api/interfaces/overview/interfaces_info/1` | Status: Interfaces |
+| WAN latency (dpinger) | `/api/routes/gateway/status` | System: Gateways |
+| Neighbors | `/api/diagnostics/interface/get_arp` | Diagnostics: ARP Table |
+| DHCP leases (Kea / Dnsmasq / ISC plugin) | `/api/kea/leases4/search`, `/api/dnsmasq/leases/search`, `/api/dhcpv4/leases/search_lease` | Services: DHCP: Kea(v4) / Services: Dnsmasq DNS/DHCP: Settings / the ISC DHCPv4 leases page |
+| Uptime, memory, hostname | `/api/diagnostics/system/system_time`, `system_resources`, `system_information` | Lobby: Dashboard |
+| CPU (sampled every `cpu_interval`, default 60 s) | `/api/diagnostics/activity/get_activity` | Diagnostics: System Activity |
+
+OPNsense privileges are per page, not read-only: some of these (Kea, Gateways) also allow changes through
+the API. Only grant the DHCP privilege for the server you use, and keep the key secret.
+A 401 or 403 is logged as an error naming the endpoint.
+
+Options go in an `[opnsense]` section (see `conf/unifi-gateway.opnsense.sample.conf`) or environment variables:
+
+| Key | Env | Default | Description |
+|---|---|---|---|
+| `api_url` | `OPNSENSE_API_URL` | *(required)* | e.g. `https://192.168.1.1` |
+| `api_key` / `api_secret` | `OPNSENSE_API_KEY` / `OPNSENSE_API_SECRET` | *(required)* | API key pair |
+| `api_secret_file` | `OPNSENSE_API_SECRET_FILE` | | Read the secret from a file (Docker secrets) |
+| `verify_ssl` | `OPNSENSE_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA/cert file (for the self-signed GUI cert) |
+| `timeout` | | `10` | HTTP timeout in seconds |
+| `dhcp_backend` | `OPNSENSE_DHCP_BACKEND` | `auto` | `auto`, `kea`, `dnsmasq`, `isc`, `none` |
+| `wan_gateway` | `OPNSENSE_WAN_GATEWAY` | *(WAN's gateway)* | Gateway name whose dpinger delay is the reported latency |
+| `latency_source` | | `gateway` | `gateway` (dpinger) or `ping` (from the container) |
+| `nameservers` | `OPNSENSE_NAMESERVERS` | *(DNS received on WAN, else LAN IP)* | Comma-separated |
+| `cpu_interval` | | `60` | Seconds between CPU samples (runs `top` on OPNsense for ~2 s); `0` disables |
+
 
 ## Docker
 
@@ -219,7 +485,7 @@ environment:
   - UNIFI_ADOPT_URL=http://your-controller:8080/inform
 ```
 
-**Note:** `network_mode: host` is required so the daemon can read the host's real network interfaces. This only works on **Linux** — Docker Desktop on Windows/macOS does not support host networking.
+**Note:** this setup runs the emulator *on the router itself*, so `network_mode: host` is required for the daemon to read the host's real network interfaces. For OPNsense you can instead run it on any Docker host without host networking, see [Deploy with Docker against OPNsense](#deploy-with-docker-against-opnsense-no-install-on-the-router). This only works on **Linux** — Docker Desktop on Windows/macOS does not support host networking.
 
 ## Service Management
 
@@ -244,6 +510,8 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 | `UNIFI_GW_LOG_FILE` | *(stderr)* | Log to file instead of stderr |
 | `UNIFI_ADOPT_URL` | *(none)* | Controller inform URL for automatic adoption on start |
 | `UNIFI_ADOPT_KEY` | *(none)* | Auth key for auto-adoption (optional, rarely needed) |
+| `UNIFI_GW_MODEL` | *(none)* | Emulated model preset: `usg` or `uxg` (Gateway Lite). Sets `device`, `device_display`, a starting `firmware` (kept once the controller upgrades it) and the default port layout |
+| `UNIFI_GW_PLATFORM`, `UNIFI_GW_PORTS`, `UNIFI_GW_LAN_IP`, `UNIFI_GW_LAN_MAC`, `UNIFI_GW_HOSTNAME`, `UNIFI_GW_DEVICE`, `UNIFI_GW_DEVICE_DISPLAY`, `UNIFI_GW_FIRMWARE`, `UNIFI_GW_PING_TARGET`, `UNIFI_GW_EXTRA_INFORM`, `UNIFI_GW_DISABLE_BROADCAST` | *(none)* | Override the matching `[gateway]`/`[global]` key on every start; blank values are ignored. With these, no config file is needed: a missing one is created with defaults. Adoption state (`is_adopted`, keys, `[provisioned]`) always stays with the daemon |
 
 ### Config File (`conf/unifi-gateway.conf`)
 
@@ -270,7 +538,7 @@ Updates are handled by your package manager: `apt upgrade`, `dnf upgrade`, `opkg
 | `dhcp_lease_format` | `dnsmasq` | Lease format: `dnsmasq`, `isc`, or `kea` |
 | `ping_target` | `ping.ubnt.com` | Host for latency measurement |
 | `speedtest_file` | `./speedtest.json` | Path to speedtest results JSON |
-| `platform` | `UNIFI-GW` | Platform string in discovery broadcasts |
+| `platform` | `auto` | Collector: `auto`, `linux`, `openwrt`, `opnsense`, `opnsense-api` (remote, see above), `pfsense`, `freebsd`. Also sent as the platform string in discovery broadcasts |
 | `extra_inform` | *(none)* | JSON object merged into every complete inform last (testing/overrides). An invalid value is logged and ignored |
 
 #### `[openwrt]`: DHCP from the controller (optional, off by default)
@@ -330,6 +598,9 @@ Populated automatically by the controller after adoption. Do not edit manually.
 UniFi Network 10.6 is the last release line that supports the USG (`UGW3`). With `device = UXG` the daemon poses
 as a UniFi Gateway Lite, a supported UniFi OS gateway, and the controller provisions it with the UniFi OS ("udapi")
 config format instead of the USG one.
+
+In Docker, `UNIFI_GW_MODEL=uxg` does all of this (see [Choosing the emulated model](#choosing-the-emulated-model)).
+In a config file:
 
 ```ini
 [gateway]

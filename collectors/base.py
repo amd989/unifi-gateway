@@ -25,6 +25,11 @@ class BaseCollector:
         self.data = {}
         self.updated = {}
         self.config = config
+        if not config.get('gateway', 'ports', fallback='').strip():
+            raise SystemExit(
+                'No [gateway] ports configured. Set ports in the config file (UNIFI_GW_CONFIG) or '
+                'UNIFI_GW_PORTS. To run against OPNsense over its API, use docker-compose.opnsense.yml '
+                '(or set OPNSENSE_API_URL), which needs neither.')
         self.ports = ast.literal_eval(config.get('gateway', 'ports'))
         self._prev_io = {}
         self._prev_time = None
@@ -339,7 +344,7 @@ class BaseCollector:
 
     def _merge_dhcp_into_hosts(self, arp_hosts):
         """Merge DHCP leases into host table with enriched fields for topology."""
-        boot = psutil.boot_time()
+        boot = self._get_boot_time()
         now = time.time()
         hosts_by_mac = {}
 
@@ -384,6 +389,9 @@ class BaseCollector:
                 hosts_by_mac[mac]['hostname'] = lease['hostname']
 
         return list(hosts_by_mac.values())
+
+    def _get_boot_time(self):
+        return psutil.boot_time()
 
     # ── DNS nameservers ──────────────────────────────────────────────────
 
